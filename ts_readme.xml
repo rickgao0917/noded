@@ -1,0 +1,450 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<typescript_coding_standards>
+<project_structure>
+<directory_structure mandatory="true">
+<src>
+<types description="Type definitions and interfaces"/>
+<utils description="Pure utility functions"/>
+<services description="External API interactions"/>
+<components description="Reusable components"/>
+<hooks description="Custom hooks for React projects"/>
+<stores description="State management"/>
+<tests description="Test files"/>
+<index_ts description="Main entry point"/>
+</src>
+</directory_structure>
+<file_naming>
+<files format="kebab-case" examples="user-service.ts,api-client.ts"/>
+<directories format="kebab-case" examples="user-management/,api-clients/"/>
+<type_files suffix=".types.ts" examples="user.types.ts"/>
+<test_files suffix=".test.ts,.spec.ts"/>
+<declaration_files extension=".d.ts"/>
+</file_naming>
+<import_organization>
+<order>
+<external_libraries priority="1"/>
+<internal_absolute priority="2"/>
+<relative_imports priority="3"/>
+</order>
+<grouping alphabetical="true" blank_lines_between_groups="true"/>
+</import_organization>
+</project_structure>
+
+<configuration_standards>
+<typescript_compiler>
+<strict_mode required="true" value="true"/>
+<no_implicit_any required="true" value="true"/>
+<strict_null_checks required="true" value="true"/>
+<strict_function_types required="true" value="true"/>
+<no_unused_locals required="true" value="true"/>
+<no_unused_parameters required="true" value="true"/>
+<exact_optional_properties required="true" value="true"/>
+<no_unchecked_indexed_access required="true" value="true"/>
+</typescript_compiler>
+<build_configuration>
+<source_maps generate="true" purpose="debugging"/>
+<declaration_files generate="true" scope="libraries"/>
+<output_directory separate_from_source="true"/>
+<incremental_compilation enabled="true" scope="large_projects"/>
+</build_configuration>
+<linting_standards>
+<eslint_typescript_parser required="true"/>
+<prettier_integration mandatory="true"/>
+<console_log_statements production_allowed="false"/>
+<any_types justification_required="true"/>
+<unused_imports_variables allowed="false"/>
+</linting_standards>
+</configuration_standards>
+
+<type_safety_requirements>
+<mandatory_annotations>
+<function_parameters explicit_types="required"/>
+<function_return_types declaration="mandatory"/>
+<exported_constants explicit_types="required"/>
+<class_properties type_declarations="required"/>
+</mandatory_annotations>
+<prohibited_patterns>
+<any_type justification_required="TSDoc_comment"/>
+<type_assertions runtime_validation_required="true"/>
+<non_null_assertions documentation_required="true"/>
+<implicit_return_types complex_functions="prohibited"/>
+<optional_chaining known_non_null="prohibited"/>
+</prohibited_patterns>
+<required_patterns>
+<discriminated_unions use_case="state_management"/>
+<type_guards runtime_checking="required"/>
+<branded_types domain_specific_values="required"/>
+<structured_error_types information="required"/>
+<readonly_modifiers immutable_data="required"/>
+</required_patterns>
+<generic_constraints>
+<meaningful_bounds required="true"/>
+<descriptive_names required="true"/>
+<documentation_with_examples complex_generics="required"/>
+<utility_types_preferred over="inline_generics"/>
+</generic_constraints>
+</type_safety_requirements>
+
+<naming_conventions>
+<variables_functions>
+<variables format="camelCase" examples="userName,apiResponse"/>
+<functions format="camelCase" prefix="verb" examples="getUserData,validateInput"/>
+<constants format="SCREAMING_SNAKE_CASE" examples="API_BASE_URL,MAX_RETRY_ATTEMPTS"/>
+<boolean_variables prefix="is,has,can,should"/>
+</variables_functions>
+<types_interfaces>
+<interfaces format="PascalCase" examples="UserProfile,ApiResponse"/>
+<types format="PascalCase" examples="DatabaseConnection,EventHandler"/>
+<enums format="PascalCase" singular="true" examples="UserRole,HttpStatus"/>
+<generic_parameters format="uppercase_single_letter,descriptive" examples="T,K,V,TUser,TResponse"/>
+</types_interfaces>
+<classes_methods>
+<classes format="PascalCase" examples="UserService,DatabaseManager"/>
+<methods format="camelCase" prefix="action_verb" examples="processPayment,validateCredentials"/>
+<private_methods prefix="_" examples="_validateInput,_cleanup"/>
+<abstract_classes prefix="Abstract" examples="AbstractRepository"/>
+</classes_methods>
+</naming_conventions>
+
+<code_organization_standards>
+<file_size_limits>
+<max_lines_per_file value="300"/>
+<max_lines_per_function value="50"/>
+<max_parameters_per_function value="10"/>
+<split_requirement condition="large_files" action="logical_modules"/>
+</file_size_limits>
+<function_design>
+<single_responsibility_principle mandatory="true"/>
+<pure_functions preferred="utilities"/>
+<side_effects documentation="required"/>
+<early_returns guard_clauses="required"/>
+<max_nesting_depth value="3"/>
+</function_design>
+<class_design>
+<composition_over_inheritance preferred="true"/>
+<max_public_methods value="7"/>
+<private_members truly_private="required"/>
+<constructor_parameters minimal="required"/>
+<dependency_injection external_dependencies="required"/>
+</class_design>
+<module_cohesion>
+<related_functionality grouped="required"/>
+<circular_dependencies prohibited="true"/>
+<barrel_exports public_apis="required"/>
+<internal_implementation private="required"/>
+<domain_separation clear="required"/>
+</module_cohesion>
+</code_organization_standards>
+
+<error_handling_requirements>
+<error_types>
+<custom_error_classes domain_specific="required"/>
+<user_friendly_messages required="true"/>
+<consistent_error_codes documented="true"/>
+<stack_trace_preservation required="true"/>
+<context_information included="required"/>
+</error_types>
+<exception_handling>
+<silent_failures prohibited="true"/>
+<empty_catch_blocks prohibited="true"/>
+<error_logging severity_appropriate="required"/>
+<recovery_strategies documented="required"/>
+<async_error_handling proper="required"/>
+<resource_cleanup finally_blocks="required"/>
+</exception_handling>
+<validation_requirements>
+<input_validation system_boundaries="required"/>
+<runtime_type_checking external_data="required"/>
+<graceful_degradation non_critical_failures="required"/>
+<http_status_codes apis="proper"/>
+<meaningful_error_responses clients="required"/>
+</validation_requirements>
+</error_handling_requirements>
+
+<comprehensive_logging_requirements>
+<log_level_hierarchy mandatory="true">
+<trace description="Function entry/exit, detailed execution flow"/>
+<debug description="Variable states, conditional branches, loop iterations"/>
+<info description="Business logic milestones, user actions, system events"/>
+<warn description="Recoverable errors, deprecated usage, performance concerns"/>
+<error description="Unhandled exceptions, system failures, data corruption"/>
+<fatal description="System shutdown events, critical security breaches"/>
+</log_level_hierarchy>
+<universal_logging_requirements coverage="100%">
+<function_entry_exit every_function="required"/>
+<conditional_branches all_branches="required"/>
+<loop_iterations count_tracking="required"/>
+<variable_assignments critical_paths="required"/>
+<external_service_calls timing_included="required"/>
+<user_interactions tracking="required"/>
+<database_queries execution_time="required"/>
+</universal_logging_requirements>
+<function_level_logging>
+<entry_exit_logging>
+<function_signature parameters="logged"/>
+<return_values execution_time="logged"/>
+<parameter_validation results="logged"/>
+<performance_metrics threshold="10ms"/>
+</entry_exit_logging>
+<branch_coverage_logging>
+<if_else_statements branch_executed="logged"/>
+<switch_cases selection="logged"/>
+<ternary_operators condition_results="logged"/>
+<try_catch_blocks section_entry="logged"/>
+<loops entry_iterations_exit="logged"/>
+</branch_coverage_logging>
+<variable_state_logging>
+<critical_assignments logged="required"/>
+<object_state_changes tracked="required"/>
+<array_modifications logged="required"/>
+<null_undefined_checks outcomes="logged"/>
+<type_conversions results="logged"/>
+</variable_state_logging>
+</function_level_logging>
+<error_exception_logging>
+<comprehensive_error_documentation>
+<stack_trace_preservation mandatory="true"/>
+<error_context user_session_request="included"/>
+<input_parameters causing_error="logged"/>
+<system_state error_time="captured"/>
+<recovery_actions attempted="documented"/>
+<impact_assessment users_data="evaluated"/>
+</comprehensive_error_documentation>
+<error_correlation>
+<unique_correlation_ids request_tracing="required"/>
+<parent_child_relationships nested_calls="logged"/>
+<error_propagation_chain documented="required"/>
+<timeline_reconstruction capabilities="required"/>
+<cross_service_correlation enabled="required"/>
+</error_correlation>
+</error_exception_logging>
+<performance_metrics_logging>
+<execution_time_tracking>
+<function_duration precision="milliseconds"/>
+<database_query_times logged="required"/>
+<external_api_latencies tracked="required"/>
+<memory_allocation tracked="required"/>
+<cpu_usage intensive_operations="monitored"/>
+</execution_time_tracking>
+<resource_utilization>
+<memory_consumption before_after="logged"/>
+<filesystem_operations sizes="logged"/>
+<network_bandwidth usage="tracked"/>
+<database_connection_pool status="monitored"/>
+<cache_hit_miss ratios="tracked"/>
+</resource_utilization>
+</performance_metrics_logging>
+<security_audit_logging>
+<authentication_authorization>
+<login_logout_attempts outcomes="logged"/>
+<permission_checks results="logged"/>
+<role_assignments modifications="logged"/>
+<session_lifecycle creation_expiration="logged"/>
+<failed_authentication details="logged"/>
+</authentication_authorization>
+<data_access_logging>
+<read_operations sensitive_data="logged"/>
+<write_operations before_after_values="logged"/>
+<delete_operations data_snapshots="logged"/>
+<export_operations data_scope="logged"/>
+<data_sharing access_grants="logged"/>
+</data_access_logging>
+<security_events>
+<suspicious_activity detection="logged"/>
+<rate_limiting triggers="logged"/>
+<input_validation failures="logged"/>
+<sql_injection attempts="logged"/>
+<xss_attacks attempts="logged"/>
+</security_events>
+</security_audit_logging>
+<business_logic_logging>
+<user_journey_tracking>
+<navigation_events logged="required"/>
+<feature_usage statistics="tracked"/>
+<process_completion rates="monitored"/>
+<interaction_patterns analyzed="required"/>
+<conversion_funnel progression="tracked"/>
+</user_journey_tracking>
+<data_flow_logging>
+<transformation_operations logged="required"/>
+<validation_rules applications="logged"/>
+<business_rules executions="logged"/>
+<workflow_state transitions="logged"/>
+<integration_point data_exchanges="logged"/>
+</data_flow_logging>
+</business_logic_logging>
+<log_structure_format>
+<mandatory_fields>
+<timestamp format="ISO_8601_timezone"/>
+<log_level required="true"/>
+<service_module_name required="true"/>
+<function_method_name required="true"/>
+<correlation_id required="true"/>
+<user_context when_applicable="true"/>
+<session_id required="true"/>
+<request_id required="true"/>
+</mandatory_fields>
+<structured_format type="JSON">
+<timestamp/>
+<level/>
+<service/>
+<function/>
+<correlationId/>
+<userId/>
+<sessionId/>
+<message/>
+<metadata/>
+</structured_format>
+</log_structure_format>
+<sensitive_data_handling>
+<sanitization_rules>
+<pii masked_hashed="required"/>
+<credit_cards truncated="required"/>
+<passwords never_logged="required"/>
+<api_keys redacted="required"/>
+<addresses anonymized="required"/>
+</sanitization_rules>
+<compliance_logging>
+<gdpr_consent tracked="required"/>
+<data_retention enforced="required"/>
+<processing_lawful_basis logged="required"/>
+<cross_border_transfers logged="required"/>
+<right_to_be_forgotten execution="logged"/>
+</compliance_logging>
+</sensitive_data_handling>
+</comprehensive_logging_requirements>
+
+<performance_guidelines>
+<memory_management>
+<event_listener_cleanup prevent_leaks="required"/>
+<subscription_cleanup proper="required"/>
+<efficient_data_structures large_datasets="required"/>
+<lazy_loading heavy_resources="required"/>
+<object_pooling frequent_creation="required"/>
+</memory_management>
+<compilation_performance>
+<complex_conditional_types minimize="required"/>
+<nested_generic_constraints avoid_deep="required"/>
+<type_aliases complex_intersections="preferred"/>
+<interfaces_over_types objects="preferred"/>
+<incremental_compilation enabled="required"/>
+</compilation_performance>
+<runtime_performance>
+<function_creation render_loops="avoid"/>
+<readonly_types prevent_mutations="required"/>
+<caching_strategies proper="required"/>
+<expensive_operations debounced="required"/>
+<performance_profiling regular="required"/>
+</runtime_performance>
+</performance_guidelines>
+
+<documentation_standards>
+<tsdoc_requirements>
+<public_apis documented="required"/>
+<parameter_descriptions non_obvious="required"/>
+<return_type_documentation complex="required"/>
+<usage_examples public_functions="required"/>
+<deprecation_notices migration_paths="required"/>
+</tsdoc_requirements>
+<code_comments>
+<explain_why not_what="required"/>
+<business_logic_decisions documented="required"/>
+<todo_items assignee_date="required"/>
+<complex_algorithms explained="required"/>
+<obvious_comments prohibited="true"/>
+</code_comments>
+</documentation_standards>
+
+<testing_requirements>
+<coverage_standards>
+<minimum_coverage value="80%"/>
+<utility_functions coverage="100%"/>
+<public_apis tested="required"/>
+<error_conditions tested="required"/>
+<edge_cases covered="required"/>
+</coverage_standards>
+<test_organization>
+<one_test_file per_source_file="required"/>
+<descriptive_names required="true"/>
+<arrange_act_assert pattern="required"/>
+<external_dependencies mocked="required"/>
+<test_isolation between_cases="required"/>
+</test_organization>
+<testing_types>
+<unit_tests all_functions="required"/>
+<integration_tests services="required"/>
+<end_to_end_tests critical_paths="required"/>
+<performance_tests bottlenecks="required"/>
+<security_tests sensitive_operations="required"/>
+</testing_types>
+</testing_requirements>
+
+<code_review_checklist>
+<type_safety_review>
+<any_types justification="check"/>
+<explicit_return_types functions="check"/>
+<error_handling implementation="check"/>
+<type_guards runtime_validation="check"/>
+<generic_constraints appropriateness="check"/>
+</type_safety_review>
+<code_quality_review>
+<single_responsibility functions="check"/>
+<naming_conventions followed="check"/>
+<code_duplication none="check"/>
+<abstraction_levels proper="check"/>
+<performance_considerations addressed="check"/>
+</code_quality_review>
+<security_review>
+<input_validation implemented="check"/>
+<sensitive_data_logs none="check"/>
+<authentication_checks proper="check"/>
+<sql_injection_prevention implemented="check"/>
+<xss_prevention measures="check"/>
+</security_review>
+<documentation_review>
+<public_apis documented="check"/>
+<complex_logic explained="check"/>
+<breaking_changes noted="check"/>
+<examples provided="check"/>
+<migration_guides included="check"/>
+</documentation_review>
+<testing_review>
+<test_coverage adequate="check"/>
+<edge_cases tested="check"/>
+<mocks properly_implemented="check"/>
+<test_names descriptive="check"/>
+<flaky_tests none="check"/>
+</testing_review>
+<logging_review>
+<function_entry_exit logged="check"/>
+<branch_coverage complete="check"/>
+<error_context comprehensive="check"/>
+<performance_metrics tracked="check"/>
+<sensitive_data sanitized="check"/>
+</logging_review>
+</code_review_checklist>
+
+<enforcement_tooling>
+<automated_checks>
+<pre_commit_hooks linting="enabled"/>
+<ci_cd_pipeline type_checking="enabled"/>
+<automated_tests execution="required"/>
+<code_coverage reporting="enabled"/>
+<security_scanning vulnerabilities="enabled"/>
+</automated_checks>
+<development_tools>
+<typescript_language_server required="true"/>
+<eslint_typescript_rules required="true"/>
+<prettier code_formatting="required"/>
+<husky git_hooks="required"/>
+<jest testing_framework="required"/>
+</development_tools>
+<quality_gates>
+<main_branch direct_commits="prohibited"/>
+<code_review approval="required"/>
+<automated_tests passing="required"/>
+<coverage_threshold minimum="required"/>
+<vulnerabilities high_severity="none"/>
+</quality_gates>
+</enforcement_tooling>
+</typescript_coding_standards>

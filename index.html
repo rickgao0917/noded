@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Node Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .editor-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .canvas {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            cursor: grab;
+            background: 
+                radial-gradient(circle at 25% 25%, #2a2a2a 1px, transparent 1px),
+                radial-gradient(circle at 75% 75%, #2a2a2a 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .canvas:active {
+            cursor: grabbing;
+        }
+
+        .canvas-content {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            transform-origin: 0 0;
+        }
+
+        .node {
+            position: absolute;
+            background: #2d2d2d;
+            border: 2px solid #404040;
+            border-radius: 12px;
+            min-width: 300px;
+            max-width: 400px;
+            padding: 16px;
+            cursor: move;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .node:hover {
+            border-color: #606060;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .node.selected {
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.2);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #404040;
+        }
+
+        .node-id {
+            font-size: 12px;
+            color: #888;
+            font-weight: 500;
+        }
+
+        .node-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            background: #404040;
+            border: none;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: background 0.2s ease;
+        }
+
+        .btn:hover {
+            background: #505050;
+        }
+
+        .btn.add {
+            background: #2d5a2d;
+        }
+
+        .btn.add:hover {
+            background: #3d6a3d;
+        }
+
+        .btn.delete {
+            background: #5a2d2d;
+        }
+
+        .btn.delete:hover {
+            background: #6a3d3d;
+        }
+
+        .block {
+            margin-bottom: 12px;
+            border: 1px solid #404040;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .block-header {
+            background: #3a3a3a;
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .prompt-block .block-header {
+            background: #3a4a2a;
+            color: #a0d0a0;
+        }
+
+        .response-block .block-header {
+            background: #2a3a4a;
+            color: #a0c0d0;
+        }
+
+        .markdown-block .block-header {
+            background: #4a3a2a;
+            color: #d0c0a0;
+        }
+
+        .block-content {
+            padding: 10px;
+        }
+
+        .block-content textarea {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-family: inherit;
+            font-size: 13px;
+            line-height: 1.4;
+            resize: vertical;
+            min-height: 60px;
+            outline: none;
+        }
+
+        .block-content textarea::placeholder {
+            color: #666;
+        }
+
+        .connections {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .connection-line {
+            stroke: #606060;
+            stroke-width: 2;
+            fill: none;
+            opacity: 0.6;
+        }
+
+        .controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .control-btn {
+            background: #2d2d2d;
+            border: 2px solid #404040;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .control-btn:hover {
+            border-color: #606060;
+            background: #3d3d3d;
+        }
+
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(45, 45, 45, 0.9);
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #ccc;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="editor-container">
+        <div class="controls">
+            <button class="control-btn" id="addRootBtn">Add Root</button>
+            <button class="control-btn" id="resetViewBtn">Reset View</button>
+            <button class="control-btn" id="exportBtn">Export</button>
+        </div>
+        
+        <div class="canvas" id="canvas">
+            <div class="canvas-content" id="canvasContent">
+                <svg class="connections" id="connections"></svg>
+            </div>
+        </div>
+
+        <div class="info">
+            <strong>Controls:</strong><br>
+            • Click & drag to pan canvas<br>
+            • Drag nodes to reposition<br>
+            • Click "Add Child" to create branches<br>
+            • Edit blocks inline with text areas
+        </div>
+    </div>
+
+    <script type="module" src="dist/index.js"></script>
+</body>
+</html>

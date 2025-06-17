@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Node Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .editor-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .canvas {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            cursor: grab;
+            background: 
+                radial-gradient(circle at 25% 25%, #2a2a2a 1px, transparent 1px),
+                radial-gradient(circle at 75% 75%, #2a2a2a 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .canvas:active {
+            cursor: grabbing;
+        }
+
+        .canvas-content {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            transform-origin: 0 0;
+        }
+
+        .node {
+            position: absolute;
+            background: #2d2d2d;
+            border: 2px solid #404040;
+            border-radius: 12px;
+            min-width: 300px;
+            max-width: 400px;
+            padding: 16px;
+            cursor: move;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .node:hover {
+            border-color: #606060;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .node.selected {
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.2);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #404040;
+        }
+
+        .node-id {
+            font-size: 12px;
+            color: #888;
+            font-weight: 500;
+        }
+
+        .node-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            background: #404040;
+            border: none;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: background 0.2s ease;
+        }
+
+        .btn:hover {
+            background: #505050;
+        }
+
+        .btn.add {
+            background: #2d5a2d;
+        }
+
+        .btn.add:hover {
+            background: #3d6a3d;
+        }
+
+        .btn.delete {
+            background: #5a2d2d;
+        }
+
+        .btn.delete:hover {
+            background: #6a3d3d;
+        }
+
+        .block {
+            margin-bottom: 12px;
+            border: 1px solid #404040;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .block-header {
+            background: #3a3a3a;
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .prompt-block .block-header {
+            background: #3a4a2a;
+            color: #a0d0a0;
+        }
+
+        .response-block .block-header {
+            background: #2a3a4a;
+            color: #a0c0d0;
+        }
+
+        .markdown-block .block-header {
+            background: #4a3a2a;
+            color: #d0c0a0;
+        }
+
+        .block-content {
+            padding: 10px;
+        }
+
+        .block-content textarea {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-family: inherit;
+            font-size: 13px;
+            line-height: 1.4;
+            resize: vertical;
+            min-height: 60px;
+            outline: none;
+        }
+
+        .block-content textarea::placeholder {
+            color: #666;
+        }
+
+        .connections {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .connection-line {
+            stroke: #606060;
+            stroke-width: 2;
+            fill: none;
+            opacity: 0.6;
+        }
+
+        .controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .control-btn {
+            background: #2d2d2d;
+            border: 2px solid #404040;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .control-btn:hover {
+            border-color: #606060;
+            background: #3d3d3d;
+        }
+
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(45, 45, 45, 0.9);
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #ccc;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="editor-container">
+        <div class="controls">
+            <button class="control-btn" onclick="addRootNode()">Add Root</button>
+            <button class="control-btn" onclick="resetView()">Reset View</button>
+            <button class="control-btn" onclick="exportData()">Export</button>
+        </div>
+        
+        <div class="canvas" id="canvas">
+            <div class="canvas-content" id="canvasContent">
+                <svg class="connections" id="connections"></svg>
+            </div>
+        </div>
+
+        <div class="info">
+            <strong>Controls:</strong><br>
+            • Click & drag to pan canvas<br>
+            • Drag nodes to reposition<br>
+            • Click "Add Child" to create branches<br>
+            • Edit blocks inline with text areas
+        </div>
+    </div>
+
+    <script>
+        class NodeEditor {
+            constructor() {
+                this.nodes = new Map();
+                this.connections = [];
+                this.selectedNode = null;
+                this.nodeCounter = 0;
+                this.scale = 1;
+                this.panX = 0;
+                this.panY = 0;
+                this.isPanning = false;
+                this.isDragging = false;
+                this.lastPanX = 0;
+                this.lastPanY = 0;
+                
+                this.canvas = document.getElementById('canvas');
+                this.canvasContent = document.getElementById('canvasContent');
+                this.connectionsEl = document.getElementById('connections');
+                
+                this.setupEventListeners();
+                this.createSampleData();
+            }
+
+            setupEventListeners() {
+                // Canvas panning
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (e.target === this.canvas || e.target === this.canvasContent) {
+                        this.isPanning = true;
+                        this.lastPanX = e.clientX;
+                        this.lastPanY = e.clientY;
+                    }
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (this.isPanning && !this.isDragging) {
+                        const deltaX = e.clientX - this.lastPanX;
+                        const deltaY = e.clientY - this.lastPanY;
+                        this.panX += deltaX;
+                        this.panY += deltaY;
+                        this.updateCanvasTransform();
+                        this.lastPanX = e.clientX;
+                        this.lastPanY = e.clientY;
+                    }
+                });
+
+                document.addEventListener('mouseup', () => {
+                    this.isPanning = false;
+                    this.isDragging = false;
+                });
+            }
+
+            updateCanvasTransform() {
+                this.canvasContent.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
+            }
+
+            createSampleData() {
+                // Create root node with prompt, response, and markdown blocks
+                const root = this.createNode(null, [
+                    { type: 'prompt', content: 'What is the capital of France?' },
+                    { type: 'response', content: 'The capital of France is Paris, a major European city and global center for art, fashion, gastronomy, and culture.' },
+                    { type: 'markdown', content: '# Additional Information\n\nParis is located in northern France, on the banks of the Seine River.' }
+                ]);
+                this.positionNode(root, 400, 100);
+
+                // Create child nodes representing edits/variations
+                const child1 = this.createNode(root.id, [
+                    { type: 'prompt', content: 'Tell me more about the history of Paris.' },
+                    { type: 'response', content: 'Paris has a rich history dating back over 2,000 years. Originally a Celtic settlement called Lutetia, it became the capital of France in the 12th century.' }
+                ]);
+                
+                const child2 = this.createNode(root.id, [
+                    { type: 'prompt', content: 'What are the main attractions in Paris?' },
+                    { type: 'response', content: 'Major attractions include the Eiffel Tower, Louvre Museum, Notre-Dame Cathedral, Arc de Triomphe, and Champs-Élysées.' }
+                ]);
+                
+                // Create grandchild nodes
+                const grandchild1 = this.createNode(child1.id, [
+                    { type: 'prompt', content: 'What role did Paris play in the French Revolution?' },
+                    { type: 'response', content: 'Paris was the epicenter of the French Revolution (1789-1799). Key events like the storming of the Bastille took place here.' },
+                    { type: 'markdown', content: '## Key Revolutionary Sites\n\n- **Bastille**: Prison stormed on July 14, 1789\n- **Place de la Révolution**: Site of many executions\n- **Tuileries Palace**: Royal residence during the revolution' }
+                ]);
+                
+                const grandchild2 = this.createNode(child1.id, [
+                    { type: 'prompt', content: 'How did Paris develop during the Medieval period?' },
+                    { type: 'response', content: 'During the Medieval period, Paris grew from a small island settlement to become the largest city in Europe by 1300, with impressive Gothic architecture.' }
+                ]);
+                
+                this.layoutTree();
+            }
+
+            createNode(parentId = null, blocks = []) {
+                const nodeId = `node_${++this.nodeCounter}`;
+                const node = {
+                    id: nodeId,
+                    parentId,
+                    children: [],
+                    x: 0,
+                    y: 0,
+                    depth: parentId ? this.nodes.get(parentId)?.depth + 1 || 0 : 0,
+                    blocks: blocks.length > 0 ? blocks : [
+                        { type: 'prompt', content: 'Enter your prompt here...' },
+                        { type: 'response', content: 'Response will appear here...' }
+                    ]
+                };
+
+                this.nodes.set(nodeId, node);
+                
+                if (parentId) {
+                    const parent = this.nodes.get(parentId);
+                    if (parent) {
+                        parent.children.push(nodeId);
+                    }
+                }
+
+                this.renderNode(node);
+                return node;
+            }
+
+            renderNode(node) {
+                const nodeEl = document.createElement('div');
+                nodeEl.className = 'node';
+                nodeEl.id = node.id;
+                nodeEl.style.left = node.x + 'px';
+                nodeEl.style.top = node.y + 'px';
+
+                nodeEl.innerHTML = `
+                    <div class="node-header">
+                        <span class="node-id">${node.id} (depth: ${node.depth})</span>
+                        <div class="node-actions">
+                            <button class="btn add" onclick="editor.addChild('${node.id}')">Add Child</button>
+                            <button class="btn delete" onclick="editor.deleteNode('${node.id}')">Delete</button>
+                        </div>
+                    </div>
+                    <div class="node-blocks">
+                        ${node.blocks.map((block, index) => this.renderBlock(block, node.id, index)).join('')}
+                    </div>
+                `;
+
+                this.setupNodeDragging(nodeEl, node);
+                this.canvasContent.appendChild(nodeEl);
+            }
+
+            renderBlock(block, nodeId, blockIndex) {
+                return `
+                    <div class="block ${block.type}-block">
+                        <div class="block-header">
+                            ${block.type}
+                            <button class="btn" onclick="editor.addMarkdownBlock('${nodeId}')">+ MD</button>
+                        </div>
+                        <div class="block-content">
+                            <textarea 
+                                placeholder="Enter ${block.type} content..."
+                                onchange="editor.updateBlockContent('${nodeId}', ${blockIndex}, this.value)"
+                            >${block.content}</textarea>
+                        </div>
+                    </div>
+                `;
+            }
+
+            setupNodeDragging(nodeEl, node) {
+                let isDragging = false;
+                let startX, startY, startNodeX, startNodeY;
+
+                nodeEl.addEventListener('mousedown', (e) => {
+                    if (e.target.closest('.btn') || e.target.closest('textarea')) return;
+                    
+                    isDragging = true;
+                    this.isDragging = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startNodeX = node.x;
+                    startNodeY = node.y;
+                    
+                    this.selectNode(node);
+                    e.preventDefault();
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (!isDragging) return;
+                    
+                    const deltaX = (e.clientX - startX) / this.scale;
+                    const deltaY = (e.clientY - startY) / this.scale;
+                    
+                    node.x = startNodeX + deltaX;
+                    node.y = startNodeY + deltaY;
+                    
+                    this.positionNode(node, node.x, node.y);
+                    this.updateConnections();
+                });
+
+                document.addEventListener('mouseup', () => {
+                    isDragging = false;
+                    this.isDragging = false;
+                });
+            }
+
+            positionNode(node, x, y) {
+                node.x = x;
+                node.y = y;
+                const nodeEl = document.getElementById(node.id);
+                if (nodeEl) {
+                    nodeEl.style.left = x + 'px';
+                    nodeEl.style.top = y + 'px';
+                }
+            }
+
+            selectNode(node) {
+                // Remove previous selection
+                if (this.selectedNode) {
+                    const prevEl = document.getElementById(this.selectedNode.id);
+                    if (prevEl) prevEl.classList.remove('selected');
+                }
+                
+                this.selectedNode = node;
+                const nodeEl = document.getElementById(node.id);
+                if (nodeEl) nodeEl.classList.add('selected');
+            }
+
+            addChild(parentId) {
+                const parent = this.nodes.get(parentId);
+                if (!parent) return;
+                
+                const child = this.createNode(parentId, [
+                    { type: 'prompt', content: 'New prompt - edit this content...' },
+                    { type: 'response', content: 'New response - this represents an edit or variation of the parent node...' }
+                ]);
+                
+                this.layoutTree();
+                this.updateConnections();
+            }
+
+            addMarkdownBlock(nodeId) {
+                const node = this.nodes.get(nodeId);
+                if (node) {
+                    node.blocks.push({
+                        type: 'markdown',
+                        content: '# New markdown block\n\nAdd your content here...'
+                    });
+                    this.rerenderNode(node);
+                }
+            }
+
+            updateBlockContent(nodeId, blockIndex, content) {
+                const node = this.nodes.get(nodeId);
+                if (node && node.blocks[blockIndex]) {
+                    node.blocks[blockIndex].content = content;
+                }
+            }
+
+            deleteNode(nodeId) {
+                const node = this.nodes.get(nodeId);
+                if (!node) return;
+
+                // Don't delete if it has children
+                if (node.children.length > 0) {
+                    alert('Cannot delete node with children. Delete children first.');
+                    return;
+                }
+
+                // Remove from parent's children list
+                if (node.parentId) {
+                    const parent = this.nodes.get(node.parentId);
+                    if (parent) {
+                        parent.children = parent.children.filter(id => id !== nodeId);
+                    }
+                }
+
+                // Remove from DOM and nodes map
+                const nodeEl = document.getElementById(nodeId);
+                if (nodeEl) nodeEl.remove();
+                this.nodes.delete(nodeId);
+
+                this.updateConnections();
+            }
+
+            rerenderNode(node) {
+                const nodeEl = document.getElementById(node.id);
+                if (nodeEl) {
+                    nodeEl.remove();
+                    this.renderNode(node);
+                    this.updateConnections();
+                }
+            }
+
+            layoutTree() {
+                // Get all root nodes
+                const rootNodes = Array.from(this.nodes.values()).filter(n => !n.parentId);
+                
+                let rootOffset = 100;
+                rootNodes.forEach((root) => {
+                    const subtreeWidth = this.calculateSubtreeWidth(root);
+                    this.layoutSubtree(root, rootOffset + subtreeWidth / 2, 100);
+                    rootOffset += subtreeWidth + 150;
+                });
+                
+                this.updateConnections();
+            }
+
+            calculateSubtreeWidth(node) {
+                const nodeWidth = 350;
+                const horizontalSpacing = 100;
+                
+                if (node.children.length === 0) {
+                    return nodeWidth;
+                }
+                
+                const childrenWidth = node.children.reduce((total, childId) => {
+                    const child = this.nodes.get(childId);
+                    return total + (child ? this.calculateSubtreeWidth(child) : 0);
+                }, 0);
+                
+                const spacingWidth = (node.children.length - 1) * horizontalSpacing;
+                return Math.max(nodeWidth, childrenWidth + spacingWidth);
+            }
+
+            layoutSubtree(node, centerX, y) {
+                const verticalSpacing = 250;
+                const horizontalSpacing = 100;
+                
+                // Position current node
+                this.positionNode(node, centerX - 175, y); // 175 is half of node width
+                
+                if (node.children.length === 0) return;
+                
+                // Calculate positions for children
+                const childWidths = node.children.map(childId => {
+                    const child = this.nodes.get(childId);
+                    return child ? this.calculateSubtreeWidth(child) : 0;
+                });
+                
+                const totalChildWidth = childWidths.reduce((sum, width) => sum + width, 0);
+                const totalSpacing = (node.children.length - 1) * horizontalSpacing;
+                const totalWidth = totalChildWidth + totalSpacing;
+                
+                let currentX = centerX - totalWidth / 2;
+                
+                node.children.forEach((childId, index) => {
+                    const child = this.nodes.get(childId);
+                    if (child) {
+                        const childWidth = childWidths[index];
+                        const childCenterX = currentX + childWidth / 2;
+                        
+                        this.layoutSubtree(child, childCenterX, y + verticalSpacing);
+                        currentX += childWidth + horizontalSpacing;
+                    }
+                });
+            }
+
+            updateConnections() {
+                this.connectionsEl.innerHTML = '';
+                
+                this.nodes.forEach(node => {
+                    if (node.parentId) {
+                        const parent = this.nodes.get(node.parentId);
+                        if (parent) {
+                            this.drawConnection(parent, node);
+                        }
+                    }
+                });
+            }
+
+            drawConnection(parent, child) {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                
+                const parentCenterX = parent.x + 200; // Approximate node width / 2
+                const parentCenterY = parent.y + 100; // Approximate node height / 2
+                const childCenterX = child.x + 200;
+                const childCenterY = child.y + 50; // Connect to top of child
+                
+                // Create a curved path
+                const midY = (parentCenterY + childCenterY) / 2;
+                const pathData = `M ${parentCenterX} ${parentCenterY + 50} C ${parentCenterX} ${midY} ${childCenterX} ${midY} ${childCenterX} ${childCenterY}`;
+                
+                line.setAttribute('d', pathData);
+                line.setAttribute('class', 'connection-line');
+                
+                this.connectionsEl.appendChild(line);
+            }
+        }
+
+        // Global functions
+        let editor;
+
+        function addRootNode() {
+            const root = editor.createNode(null, [
+                { type: 'prompt', content: 'New root prompt...' },
+                { type: 'response', content: 'New root response...' }
+            ]);
+            editor.layoutTree();
+        }
+
+        function resetView() {
+            editor.panX = 0;
+            editor.panY = 0;
+            editor.scale = 1;
+            editor.updateCanvasTransform();
+        }
+
+        function exportData() {
+            const data = {
+                nodes: Array.from(editor.nodes.entries()).map(([id, node]) => ({
+                    id,
+                    parentId: node.parentId,
+                    children: node.children,
+                    x: node.x,
+                    y: node.y,
+                    depth: node.depth,
+                    blocks: node.blocks
+                }))
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'node-editor-data.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Initialize editor
+        document.addEventListener('DOMContentLoaded', () => {
+            editor = new NodeEditor();
+        });
+    </script>
+</body>
+</html>
