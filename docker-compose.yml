@@ -2,7 +2,7 @@ services:
   noded:
     build: .
     ports:
-      - "8000:8000"
+      - "6001:8000"
     container_name: noded-app
     restart: unless-stopped
     environment:

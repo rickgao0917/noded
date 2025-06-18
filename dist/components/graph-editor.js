@@ -55,6 +55,10 @@ export class GraphEditor {
             this.canvas = canvas;
             this.canvasContent = canvasContent;
             this.connectionsEl = connectionsEl;
+            // Set SVG attributes for proper rendering
+            this.connectionsEl.setAttribute('width', '100%');
+            this.connectionsEl.setAttribute('height', '100%');
+            this.connectionsEl.style.overflow = 'visible';
             this.logger.logVariableAssignment('constructor', 'canvas', canvas.id || 'unnamed');
             this.logger.logVariableAssignment('constructor', 'canvasContent', canvasContent.id || 'unnamed');
             this.logger.logVariableAssignment('constructor', 'connectionsEl', connectionsEl.id || 'unnamed');
@@ -1003,8 +1007,6 @@ export class GraphEditor {
         try {
             this.connectionsEl.innerHTML = '';
             this.logger.logInfo('Cleared existing connections', 'updateConnections');
-            // Create arrow marker definition
-            this.createArrowMarker();
             let connectionsCreated = 0;
             this.logger.logLoop('updateConnections', 'nodes_processing', this.nodes.size);
             for (const [nodeId, node] of this.nodes) {
@@ -1037,40 +1039,6 @@ export class GraphEditor {
         }
     }
     /**
-     * Create SVG arrow marker definition
-     *
-     * @private
-     */
-    createArrowMarker() {
-        this.logger.logFunctionEntry('createArrowMarker');
-        try {
-            // Check if marker already exists
-            const existingDefs = this.connectionsEl.querySelector('defs');
-            if (existingDefs)
-                return;
-            const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-            const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-            marker.setAttribute('id', 'arrowhead');
-            marker.setAttribute('markerWidth', '10');
-            marker.setAttribute('markerHeight', '7');
-            marker.setAttribute('refX', '9');
-            marker.setAttribute('refY', '3.5');
-            marker.setAttribute('orient', 'auto');
-            const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
-            polygon.setAttribute('class', 'connection-arrow');
-            marker.appendChild(polygon);
-            defs.appendChild(marker);
-            this.connectionsEl.appendChild(defs);
-            this.logger.logInfo('Arrow marker created successfully', 'createArrowMarker');
-            this.logger.logFunctionExit('createArrowMarker');
-        }
-        catch (error) {
-            this.logger.logError(error, 'createArrowMarker');
-            // Non-critical error, continue without arrows
-        }
-    }
-    /**
      * Draw an SVG connection line between parent and child nodes
      *
      * @param parent - The parent GraphNode
@@ -1094,11 +1062,9 @@ export class GraphEditor {
             this.logger.logVariableAssignment('drawConnection', 'parentCenterY', parentCenterY);
             this.logger.logVariableAssignment('drawConnection', 'childCenterX', childCenterX);
             this.logger.logVariableAssignment('drawConnection', 'childCenterY', childCenterY);
-            // Create a curved path with adjusted end point for arrow
+            // Create a curved path
             const midY = (parentCenterY + childCenterY) / 2;
-            // Shorten the path slightly to accommodate the arrow marker
-            const adjustedChildY = childCenterY + 5;
-            const pathData = `M ${parentCenterX} ${parentCenterY + 50} C ${parentCenterX} ${midY} ${childCenterX} ${midY} ${childCenterX} ${adjustedChildY}`;
+            const pathData = `M ${parentCenterX} ${parentCenterY + 50} C ${parentCenterX} ${midY} ${childCenterX} ${midY} ${childCenterX} ${childCenterY}`;
             line.setAttribute('d', pathData);
             line.setAttribute('class', 'connection-line');
             this.connectionsEl.appendChild(line);
