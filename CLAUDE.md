@@ -24,11 +24,29 @@ npm run lint            # ESLint with zero warnings tolerance
 2. `npm run serve` - Start Python server on port 8000 (or use alternative port if 8000 is busy)
 3. Open `http://localhost:8000` for the modular version or open `standalone.html` directly in browser
 
-**Port Issues:**
-If port 8000 is in use, you can:
+**Docker Development:**
+```bash
+# Build and run with Docker Compose
+docker-compose up -d      # Start container in background
+docker-compose down       # Stop and remove container
+docker-compose logs -f    # View container logs
+
+# Manual Docker commands
+docker build -t noded .   # Build image
+docker run -p 6001:8000 noded  # Run container
+```
+
+**Port Configuration:**
+- Local development: Port 8000 (Python HTTP server)
+- Docker container: Port 6001 (mapped to internal 8000)
+- Access via: `http://localhost:6001` when using Docker
+
+**Port Conflict Resolution:**
+If port 8000 is in use locally:
 - Use `lsof -ti:8000 | xargs kill -9` to kill processes on port 8000
 - Or use `python3 -m http.server 8001` to run on a different port
 - Or directly open `standalone.html` in your browser (no server needed)
+- Or use Docker which runs on port 6001
 
 ## Architecture
 
@@ -63,6 +81,7 @@ If port 8000 is in use, you can:
 **Tree Data Structure:**
 - Nodes stored in `Map<string, GraphNode>` for O(1) lookup
 - Each node maintains `children: string[]` array for tree relationships
+- GraphNode interface includes custom `name` field for user-defined labels
 - Tree layout algorithm (`utils/tree-layout.ts`) calculates positions based on subtree width
 - Guaranteed tree structure with cycle detection and integrity validation
 
@@ -97,24 +116,61 @@ src/
 
 ### TypeScript Standards Compliance
 
-This project strictly follows the comprehensive standards defined in `ts_readme.xml`:
+This project strictly adheres to the comprehensive TypeScript coding standards defined in `ts_readme.xml`. Key requirements include:
 
-**Logging Requirements:**
+**Project Structure (per ts_readme.xml):**
+- Kebab-case file naming: `graph-editor.ts`, `type-guards.ts`, `tree-layout.ts`
+- Type files use `.types.ts` suffix: `graph.types.ts`, `errors.ts`
+- Directory structure follows: `/src/types`, `/src/utils`, `/src/components`
+- Import organization: external libraries → internal absolute → relative imports
+
+**Type Safety Requirements (mandatory per ts_readme.xml):**
+- All function parameters must have explicit types
+- Function return types are mandatory
+- Runtime type guards required for all external data
+- Discriminated unions for state management
+- Branded types for domain-specific values (node IDs, etc.)
+- `readonly` modifiers for immutable data structures
+
+**Naming Conventions (enforced from ts_readme.xml):**
+- Variables/functions: `camelCase` (e.g., `nodeCounter`, `addChild`)
+- Constants: `SCREAMING_SNAKE_CASE` (e.g., `NODE_WIDTH`, `NODE_HEIGHT`)
+- Interfaces/types: `PascalCase` (e.g., `GraphNode`, `NodeBlock`)
+- Boolean variables prefix: `is`, `has`, `can`, `should`
+- Functions prefix with verbs: `validateGraphNode`, `calculateTreeLayout`
+
+**TypeScript Compiler Settings (strict mode required):**
+```json
+{
+  "strict": true,
+  "noImplicitAny": true,
+  "strictNullChecks": true,
+  "strictFunctionTypes": true,
+  "noUnusedLocals": true,
+  "noUnusedParameters": true,
+  "exactOptionalPropertyTypes": true,
+  "noUncheckedIndexedAccess": true
+}
+```
+
+**Logging Standards (custom extension of ts_readme.xml):**
 - 100% function coverage with entry/exit logging
 - Branch coverage for all conditional statements  
-- Performance metrics for all operations
-- Structured JSON output with correlation tracking
+- Performance metrics with automatic warnings (>10ms)
+- Structured JSON output with correlation IDs
+- User interaction tracking with detailed context
 
-**Error Handling:**
-- Custom error classes with user-friendly messages
-- Full error context with function names and parameters
-- Domain-specific errors (NodeEditorError, DOMError, ValidationError, TreeStructureError)
+**Error Handling Patterns:**
+- Custom error hierarchy with structured context
+- User-friendly messages separated from technical details
+- Domain-specific error types for different failure modes
+- Full error context including function name and parameters
 
-**Code Quality:**
-- Kebab-case file naming (graph-editor.ts, type-guards.ts)
-- JSDoc documentation for all public APIs
-- Runtime validation for all inputs
-- Strict TypeScript configuration with all safety checks enabled
+**Code Documentation:**
+- JSDoc required for all public APIs
+- Complex generics must include usage examples
+- Runtime validation logic must be documented
+- Type guards must specify validation rules
 
 ### Implementation Details
 
@@ -149,24 +205,116 @@ This project strictly follows the comprehensive standards defined in `ts_readme.
 - **Smooth Transitions**: Removed position transitions from nodes, kept only for visual feedback (borders, shadows)
 - **CSS Performance**: Added `will-change: transform` for better rendering performance
 
-**New Features:**
-- **Directional Arrows**: SVG arrow markers show parent-child relationships and flow direction
+**Initial Features:**
 - **Zoom Functionality**: 
   - Mouse wheel zoom (0.1x to 5x range) centered on cursor position
   - Zoom In/Out buttons with fixed step increments (0.2)
   - Zoom controls integrated with existing pan and drag functionality
   - Reset View also resets zoom to default (1x)
 
+**Auto-Layout System:**
+- **Intelligent Tree Layout**: Auto Layout button that reorganizes the entire graph with optimal spacing
+- **Dynamic Spacing**: Prevents node overlapping with configurable horizontal (200px) and vertical (300px) spacing
+- **Multiple Root Support**: Handles graphs with multiple root nodes, spacing them horizontally
+- **Animated Transitions**: Smooth 0.5s animations when nodes move to new positions
+- **View Centering**: Automatically centers the view on the graph after layout
+- **Adaptive Heights**: Layout algorithm considers actual node heights including collapsed/expanded states
+
+**Enhanced Node Functionality:**
+- **Node Collapsing**: 
+  - Collapse/expand entire nodes to show only headers
+  - Visual indicators (▼/▶) for collapse state
+  - Collapsed nodes use minimal vertical space (60px)
+  - Auto-layout respects collapsed node dimensions
+- **Node Renaming**:
+  - Editable node names with inline text input
+  - Custom names preserved throughout operations
+  - Original node ID shown in small text
+  - Enter key or blur to save changes
+- **Node Resizing**:
+  - Drag handle (⋮⋮) at bottom-right corner
+  - Resize nodes between 300-600px width
+  - Flexible height adjustment with no upper limit
+  - Real-time connection line updates during resize
+
+**Block Improvements:**
+- **Block Minimizing**: 
+  - Individual blocks can be minimized to show only headers
+  - Dynamic titles showing content preview or type
+  - Smooth expand/collapse animations
+- **Block Resizing**:
+  - Drag handles for textarea height adjustment (60-400px)
+  - Independent sizing for each block
+- **Simplified Headers**:
+  - Prompt blocks: "Prompt"
+  - Response blocks: "Response"
+  - Markdown blocks: "MD #1", "MD #2", etc.
+- **Centralized Controls**:
+  - "+ MD" button moved to node header
+  - No duplicate buttons in individual blocks
+
+**Connection Line Enhancements:**
+- **Dynamic Sizing**: Lines adjust based on actual node dimensions
+- **Collapsed Node Support**: Proper connections for nodes of any size
+- **Real-time Updates**: Connections update during node resize operations
+- **Clean Paths**: Smooth curved lines from parent bottom to child top
+
 **User Interface Updates:**
-- Added Zoom In and Zoom Out buttons to control panel
-- Updated help text to include scroll-to-zoom instructions
-- Arrow markers styled to match connection line aesthetics
+- Added Auto Layout button to control panel
+- Node names are editable with hover/focus states
+- Resize handles appear on hover for clean interface
+- Updated help text to include new controls
+- Consistent styling for all interactive elements
+
+**Bug Fixes:**
+- Fixed SVG connection rendering issues where lines were sometimes half-rendered
+- Added `overflow: visible` to SVG elements for proper line display
+- Improved SVG element initialization with proper width/height attributes
+- Fixed overlapping issues in auto-layout with proper dimension calculations
+
+### Docker Configuration
+
+**Container Architecture:**
+- Multi-stage build process for optimized production image
+- Build stage: Node.js 18 Alpine for TypeScript compilation
+- Runtime stage: Python 3.11 Alpine for minimal HTTP server
+- Final image size optimized by copying only built artifacts
+
+**Docker Files:**
+- `Dockerfile`: Multi-stage build configuration
+- `docker-compose.yml`: Service orchestration with volume mounts
+- Port mapping: External 6001 → Internal 8000
+- Automatic restart policy: `unless-stopped`
+
+**Volume Mounts (read-only):**
+```yaml
+- ./dist:/app/dist:ro        # Compiled JavaScript
+- ./index.html:/app/index.html:ro     # Main application
+- ./standalone.html:/app/standalone.html:ro  # Standalone version
+```
+
+**Docker Commands:**
+```bash
+# Development with hot reload (requires local build)
+docker-compose up -d
+docker-compose logs -f
+
+# Production build
+docker build -t noded:latest .
+docker run -d -p 6001:8000 --name noded-app noded:latest
+
+# Maintenance
+docker-compose down          # Stop and remove
+docker-compose restart       # Restart service
+docker exec -it noded-app sh # Access container shell
+```
 
 ### Development Notes
 
 **Deployment Options:**
 - `index.html` - Modular version using ES6 imports (requires HTTP server)
 - `standalone.html` - Self-contained version with inlined code (direct browser access, no server needed)
+- Docker container - Production-ready deployment with automated builds
 
 **Logging Philosophy:**
 - Every function call produces structured JSON logs in browser console
@@ -186,4 +334,12 @@ This project strictly follows the comprehensive standards defined in `ts_readme.
 - Always run `npm run build` before testing changes
 - Use browser developer tools to view structured logging output
 - Maintain the comprehensive logging, error handling, and validation patterns established throughout the system
-- Follow ts_readme.xml standards for all code modifications
+- **Strictly follow `ts_readme.xml` standards for all code modifications:**
+  - Check naming conventions before creating new files/variables
+  - Ensure all functions have explicit return types
+  - Add runtime type guards for external data
+  - Use `readonly` modifiers for immutable structures
+  - Maintain import organization order
+  - Document complex types with JSDoc and examples
+- Run `npm run typecheck` to verify strict TypeScript compliance
+- Use `npm run lint` to ensure code style consistency (when ESLint is configured)

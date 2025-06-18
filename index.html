@@ -79,11 +79,102 @@
             padding-bottom: 8px;
             border-bottom: 1px solid #404040;
         }
-
-        .node-id {
-            font-size: 12px;
+        
+        .node-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-collapse {
+            background: none;
+            border: none;
             color: #888;
-            font-weight: 500;
+            cursor: pointer;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.2s ease;
+        }
+        
+        .btn-collapse:hover {
+            color: #fff;
+        }
+        
+        .collapse-icon {
+            font-size: 10px;
+        }
+
+        .node-name {
+            background: transparent;
+            border: 1px solid transparent;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 3px;
+            outline: none;
+            min-width: 80px;
+            max-width: 200px;
+            transition: all 0.2s ease;
+        }
+        
+        .node-name:hover {
+            border-color: #505050;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .node-name:focus {
+            border-color: #4a9eff;
+            background: rgba(74, 158, 255, 0.1);
+        }
+        
+        
+        .node-resize-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            cursor: nwse-resize;
+            color: #666;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        .node:hover .node-resize-handle {
+            opacity: 0.5;
+        }
+        
+        .node-resize-handle:hover {
+            opacity: 1 !important;
+        }
+        
+        .node.collapsed {
+            min-height: auto;
+            opacity: 0.9;
+        }
+        
+        .node.collapsed .node-header {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        
+        .node.collapsed .node-blocks {
+            display: none;
+        }
+        
+        .node-blocks {
+            transition: all 0.3s ease;
         }
 
         .node-actions {
@@ -127,18 +218,66 @@
             border: 1px solid #404040;
             border-radius: 6px;
             overflow: hidden;
+            position: relative;
         }
 
         .block-header {
             background: #3a3a3a;
-            padding: 6px 10px;
-            font-size: 11px;
+            padding: 8px 12px;
+            font-size: 12px;
             font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .block-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+        }
+        
+        .btn-minimize {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.2s ease;
+        }
+        
+        .btn-minimize:hover {
+            color: #fff;
+        }
+        
+        .minimize-icon {
+            font-size: 10px;
+        }
+        
+        .block-title {
+            color: #ddd;
+            font-weight: normal;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .block-type-badge {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .prompt-block .block-header {
@@ -158,6 +297,8 @@
 
         .block-content {
             padding: 10px;
+            position: relative;
+            transition: all 0.3s ease;
         }
 
         .block-content textarea {
@@ -168,13 +309,40 @@
             font-family: inherit;
             font-size: 13px;
             line-height: 1.4;
-            resize: vertical;
+            resize: none;
             min-height: 60px;
+            max-height: 400px;
             outline: none;
+            overflow-y: auto;
         }
 
         .block-content textarea::placeholder {
             color: #666;
+        }
+        
+        .resize-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 30px;
+            height: 20px;
+            cursor: ns-resize;
+            color: #666;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            opacity: 0.5;
+            transition: opacity 0.2s ease;
+        }
+        
+        .resize-handle:hover {
+            opacity: 1;
+        }
+        
+        .block[data-minimized="true"] .block-content {
+            display: none;
         }
 
         .connections {
@@ -220,6 +388,82 @@
             background: #3d3d3d;
         }
 
+
+        .zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(45, 45, 45, 0.9);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            color: #ccc;
+            z-index: 1000;
+        }
+
+        .zoom-controls label {
+            font-weight: 600;
+            color: #ddd;
+        }
+
+        .zoom-controls input[type="range"] {
+            width: 100px;
+            height: 4px;
+            background: #404040;
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .zoom-btn {
+            background: #2d2d2d;
+            border: 1px solid #404040;
+            color: #fff;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .zoom-btn:hover {
+            border-color: #606060;
+            background: #3d3d3d;
+        }
+
+        .zoom-controls input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 4px;
+            height: 16px;
+            background: #666;
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .zoom-controls input[type="range"]::-moz-range-thumb {
+            width: 4px;
+            height: 16px;
+            background: #666;
+            border-radius: 2px;
+            cursor: pointer;
+            border: none;
+        }
+
+        #zoomValue {
+            min-width: 40px;
+            text-align: right;
+            font-weight: 600;
+            color: #fff;
+        }
+
         .info {
             position: absolute;
             bottom: 20px;
@@ -237,10 +481,18 @@
     <div class="editor-container">
         <div class="controls">
             <button class="control-btn" id="addRootBtn">Add Root</button>
-            <button class="control-btn" id="zoomInBtn">Zoom In</button>
-            <button class="control-btn" id="zoomOutBtn">Zoom Out</button>
+            <button class="control-btn" id="autoLayoutBtn">Auto Layout</button>
+            <button class="control-btn" id="toggleCollapseBtn">Collapse All</button>
             <button class="control-btn" id="resetViewBtn">Reset View</button>
             <button class="control-btn" id="exportBtn">Export</button>
+        </div>
+        
+        <div class="zoom-controls">
+            <button class="zoom-btn" id="zoomOutBtn">-</button>
+            <label for="zoomSlider">Zoom</label>
+            <input type="range" id="zoomSlider" min="10" max="500" value="100" step="10">
+            <span id="zoomValue">100%</span>
+            <button class="zoom-btn" id="zoomInBtn">+</button>
         </div>
         
         <div class="canvas" id="canvas">
@@ -255,6 +507,7 @@
             • Scroll to zoom in/out<br>
             • Drag nodes to reposition<br>
             • Click "Add Child" to create branches<br>
+            • Click "Auto Layout" to reorganize graph<br>
             • Edit blocks inline with text areas
         </div>
     </div>

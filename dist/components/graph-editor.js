@@ -13,6 +13,7 @@
 import { Logger } from '../utils/logger.js';
 import { Validator } from '../utils/type-guards.js';
 import { ErrorFactory, NodeEditorError, TreeStructureError, ValidationError } from '../types/errors.js';
+import { calculateTreeLayout } from '../utils/tree-layout.js';
 /**
  * Main graph editor class managing interactive node tree structure
  */
@@ -28,6 +29,10 @@ export class GraphEditor {
      * @throws {NodeEditorError} When initialization fails
      */
     constructor(canvas, canvasContent, connectionsEl) {
+        // Node dimension constants (accounting for CSS max-width + padding + border)
+        this.NODE_WIDTH = 436; // max-width (400) + padding (32) + border (4)
+        this.NODE_HEIGHT = 250; // Approximate height with content
+        this.NODE_HALF_WIDTH = 218; // Half of NODE_WIDTH for centering
         this.nodes = new Map();
         this.selectedNode = null;
         this.nodeCounter = 0;
@@ -314,6 +319,7 @@ export class GraphEditor {
             this.logger.logVariableAssignment('createNode', 'nodeDepth', nodeDepth);
             const node = {
                 id: nodeId,
+                name: `Node ${this.nodeCounter}`,
                 parentId,
                 children: [],
                 position: { x: 0, y: 0 },
@@ -370,31 +376,49 @@ export class GraphEditor {
             nodeEl.style.left = node.position.x + 'px';
             nodeEl.style.top = node.position.y + 'px';
             this.logger.logVariableAssignment('renderNode', 'nodeElement', nodeEl.tagName);
+            // Set initial collapsed state
+            nodeEl.setAttribute('data-collapsed', 'false');
             nodeEl.innerHTML = `
         <div class="node-header">
-          <span class="node-id">${node.id} (depth: ${node.depth})</span>
+          <div class="node-header-left">
+            <button class="btn-collapse" data-action="toggleNode" data-node-id="${node.id}" title="Toggle collapse">
+              <span class="collapse-icon">▼</span>
+            </button>
+            <input class="node-name" type="text" value="${node.name}" data-node-id="${node.id}" title="Click to rename">
+          </div>
           <div class="node-actions">
             <button class="btn add" data-action="addChild" data-node-id="${node.id}">Add Child</button>
+            <button class="btn add" data-action="addMarkdown" data-node-id="${node.id}">+ MD</button>
             <button class="btn delete" data-action="deleteNode" data-node-id="${node.id}">Delete</button>
           </div>
         </div>
         <div class="node-blocks">
           ${node.blocks.map((block, index) => this.renderBlock(block, node.id, index)).join('')}
         </div>
+        <div class="node-resize-handle" data-action="resizeNode" data-node-id="${node.id}" title="Drag to resize">⋮⋮</div>
       `;
             // Add event listeners with error handling
             nodeEl.addEventListener('click', (e) => {
                 try {
-                    const target = e.target;
+                    let target = e.target;
                     this.logger.logUserInteraction('node_click', node.id, {
                         targetClass: target.className,
                         action: target.getAttribute('data-action')
                     });
-                    const hasButtonClass = target.classList.contains('btn');
+                    // Check if the clicked element or its parent is a button
+                    let buttonElement = null;
+                    if (target.classList.contains('btn') || target.classList.contains('btn-minimize') || target.classList.contains('btn-collapse')) {
+                        buttonElement = target;
+                    }
+                    else if (target.parentElement && (target.parentElement.classList.contains('btn') || target.parentElement.classList.contains('btn-minimize') || target.parentElement.classList.contains('btn-collapse'))) {
+                        buttonElement = target.parentElement;
+                    }
+                    const hasButtonClass = buttonElement !== null;
                     this.logger.logBranch('renderNode', 'hasButtonClass', hasButtonClass);
-                    if (hasButtonClass) {
-                        const action = target.getAttribute('data-action');
-                        const nodeId = target.getAttribute('data-node-id');
+                    if (hasButtonClass && buttonElement) {
+                        const action = buttonElement.getAttribute('data-action');
+                        const nodeId = buttonElement.getAttribute('data-node-id');
+                        const blockId = buttonElement.getAttribute('data-block-id');
                         this.logger.logVariableAssignment('renderNode', 'buttonAction', action);
                         this.logger.logVariableAssignment('renderNode', 'buttonNodeId', nodeId);
                         if (action === 'addChild' && nodeId) {
@@ -403,6 +427,15 @@ export class GraphEditor {
                         else if (action === 'deleteNode' && nodeId) {
                             this.deleteNode(nodeId);
                         }
+                        else if (action === 'addMarkdown' && nodeId) {
+                            this.addMarkdownBlock(nodeId);
+                        }
+                        else if (action === 'toggleBlock' && blockId) {
+                            this.toggleBlockMinimize(blockId);
+                        }
+                        else if (action === 'toggleNode' && nodeId) {
+                            this.toggleNodeCollapse(nodeId);
+                        }
                     }
                 }
                 catch (error) {
@@ -410,6 +443,9 @@ export class GraphEditor {
                 }
             });
             this.setupNodeDragging(nodeEl, node);
+            this.setupBlockResizing(nodeEl);
+            this.setupNodeResizing(nodeEl, node);
+            this.setupNodeRenaming(nodeEl, node);
             this.canvasContent.appendChild(nodeEl);
             this.logger.logInfo('Node rendered successfully', 'renderNode', { nodeId: node.id });
             const executionTime = performance.now() - startTime;
@@ -420,6 +456,25 @@ export class GraphEditor {
             this.logger.logError(error, 'renderNode', { nodeId: node.id });
             throw this.errorFactory.createDOMError(`Failed to render node ${node.id}`, 'NODE_RENDER_FAILED', 'Unable to display the node.', 'renderNode');
         }
+    }
+    /**
+     * Generate a default title for a block
+     *
+     * @param block - The NodeBlock to generate title for
+     * @param nodeId - ID of the containing node
+     * @returns A descriptive title for the block
+     * @private
+     */
+    getBlockTitle(block, nodeId) {
+        const node = this.nodes.get(nodeId);
+        // Count markdown blocks to determine the number
+        if (block.type === 'markdown' && node) {
+            const mdBlocks = node.blocks.filter(b => b.type === 'markdown');
+            const mdIndex = mdBlocks.findIndex(b => b.id === block.id) + 1;
+            return `MD #${mdIndex}`;
+        }
+        // For prompt and response, just return the type
+        return block.type.charAt(0).toUpperCase() + block.type.slice(1);
     }
     /**
      * Render a content block within a node
@@ -440,11 +495,18 @@ export class GraphEditor {
         try {
             this.validator.validateNodeBlock(block, 'renderBlock');
             this.validator.validateNodeId(nodeId, 'renderBlock');
+            // Generate a default title for the block
+            const blockTitle = this.getBlockTitle(block, nodeId);
             const html = `
-        <div class="block ${block.type}-block">
+        <div class="block ${block.type}-block" data-block-id="${block.id}" data-minimized="false">
           <div class="block-header">
-            ${block.type}
-            <button class="btn" data-action="addMarkdown" data-node-id="${nodeId}">+ MD</button>
+            <div class="block-header-left">
+              <button class="btn-minimize" data-action="toggleBlock" data-block-id="${block.id}" title="Toggle minimize">
+                <span class="minimize-icon">▼</span>
+              </button>
+              <span class="block-title">${blockTitle}</span>
+            </div>
+            <div class="block-type-badge">${block.type}</div>
           </div>
           <div class="block-content">
             <textarea 
@@ -455,6 +517,7 @@ export class GraphEditor {
               data-block-index="${blockIndex}"
               autocomplete="off"
             >${block.content}</textarea>
+            <div class="resize-handle" data-action="resizeBlock" data-block-id="${block.id}" title="Drag to resize">⋮⋮</div>
           </div>
         </div>
       `;
@@ -554,14 +617,15 @@ export class GraphEditor {
         }
     }
     /**
-     * Position a node at specific coordinates
+     * Position a node at specific coordinates with optional animation
      *
      * @param node - The GraphNode to position
      * @param x - X coordinate
      * @param y - Y coordinate
+     * @param animated - Whether to animate the position change
      * @private
      */
-    positionNode(node, x, y) {
+    positionNode(node, x, y, animated = false) {
         this.logger.logFunctionEntry('positionNode', { nodeId: node.id, x, y });
         try {
             this.validator.validateGraphNode(node, 'positionNode');
@@ -573,8 +637,30 @@ export class GraphEditor {
             const nodeElementExists = !!nodeEl;
             this.logger.logBranch('positionNode', 'nodeElementExists', nodeElementExists);
             if (nodeEl) {
+                if (animated) {
+                    // Add transition for smooth animation
+                    nodeEl.style.transition = 'left 0.5s ease, top 0.5s ease';
+                    // Force browser to compute the style change
+                    void nodeEl.offsetHeight;
+                    this.logger.logInfo('Animating node position', 'positionNode', {
+                        nodeId: node.id,
+                        animated: true
+                    });
+                }
+                else {
+                    // Remove transition for instant positioning
+                    nodeEl.style.transition = '';
+                }
                 nodeEl.style.left = x + 'px';
                 nodeEl.style.top = y + 'px';
+                if (animated) {
+                    // Remove transition after animation completes
+                    setTimeout(() => {
+                        if (nodeEl) {
+                            nodeEl.style.transition = '';
+                        }
+                    }, 500);
+                }
                 this.logger.logVariableAssignment('positionNode', 'elementLeft', nodeEl.style.left);
                 this.logger.logVariableAssignment('positionNode', 'elementTop', nodeEl.style.top);
             }
@@ -900,8 +986,8 @@ export class GraphEditor {
     calculateSubtreeWidth(node) {
         this.logger.logFunctionEntry('calculateSubtreeWidth', { nodeId: node.id });
         try {
-            const nodeWidth = 350;
-            const horizontalSpacing = 100;
+            const nodeWidth = this.NODE_WIDTH;
+            const horizontalSpacing = 150;
             const hasChildren = node.children.length > 0;
             this.logger.logBranch('calculateSubtreeWidth', 'hasChildren', hasChildren, {
                 nodeId: node.id,
@@ -943,10 +1029,10 @@ export class GraphEditor {
     layoutSubtree(node, centerX, y) {
         this.logger.logFunctionEntry('layoutSubtree', { nodeId: node.id, centerX, y });
         try {
-            const verticalSpacing = 250;
-            const horizontalSpacing = 100;
+            const verticalSpacing = 300;
+            const horizontalSpacing = 150;
             // Position current node
-            this.positionNode(node, centerX - 175, y); // 175 is half of node width
+            this.positionNode(node, centerX - this.NODE_HALF_WIDTH, y);
             const hasChildren = node.children.length > 0;
             this.logger.logBranch('layoutSubtree', 'hasChildren', hasChildren, {
                 nodeId: node.id,
@@ -1054,17 +1140,30 @@ export class GraphEditor {
             this.validator.validateGraphNode(parent, 'drawConnection');
             this.validator.validateGraphNode(child, 'drawConnection');
             const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            const parentCenterX = parent.position.x + 200; // Approximate node width / 2
-            const parentCenterY = parent.position.y + 100; // Approximate node height / 2
-            const childCenterX = child.position.x + 200;
-            const childCenterY = child.position.y + 50; // Connect to top of child
+            // Get actual node elements to determine real dimensions
+            const parentEl = document.getElementById(parent.id);
+            const childEl = document.getElementById(child.id);
+            let parentWidth = this.NODE_WIDTH;
+            let parentHeight = this.NODE_HEIGHT;
+            let childWidth = this.NODE_WIDTH;
+            if (parentEl) {
+                parentWidth = parentEl.offsetWidth || this.NODE_WIDTH;
+                parentHeight = parentEl.offsetHeight || this.NODE_HEIGHT;
+            }
+            if (childEl) {
+                childWidth = childEl.offsetWidth || this.NODE_WIDTH;
+            }
+            const parentCenterX = parent.position.x + parentWidth / 2;
+            const parentCenterY = parent.position.y + parentHeight - 10; // Bottom of parent
+            const childCenterX = child.position.x + childWidth / 2;
+            const childCenterY = child.position.y + 10; // Top of child
             this.logger.logVariableAssignment('drawConnection', 'parentCenterX', parentCenterX);
             this.logger.logVariableAssignment('drawConnection', 'parentCenterY', parentCenterY);
             this.logger.logVariableAssignment('drawConnection', 'childCenterX', childCenterX);
             this.logger.logVariableAssignment('drawConnection', 'childCenterY', childCenterY);
             // Create a curved path
             const midY = (parentCenterY + childCenterY) / 2;
-            const pathData = `M ${parentCenterX} ${parentCenterY + 50} C ${parentCenterX} ${midY} ${childCenterX} ${midY} ${childCenterX} ${childCenterY}`;
+            const pathData = `M ${parentCenterX} ${parentCenterY} C ${parentCenterX} ${midY} ${childCenterX} ${midY} ${childCenterX} ${childCenterY}`;
             line.setAttribute('d', pathData);
             line.setAttribute('class', 'connection-line');
             this.connectionsEl.appendChild(line);
@@ -1104,6 +1203,8 @@ export class GraphEditor {
                 totalNodes: this.nodes.size
             });
             this.layoutTree();
+            // Update the collapse toggle button since we added a new node
+            this.updateCollapseToggleButton();
             const executionTime = performance.now() - startTime;
             this.logger.logPerformance('addRootNode', 'root_creation', executionTime);
             this.logger.logFunctionExit('addRootNode', { rootId: root.id }, executionTime);
@@ -1176,6 +1277,168 @@ export class GraphEditor {
         }
     }
     /**
+     * Set zoom level to a specific value
+     *
+     * @param zoomLevel - The zoom level (1.0 = 100%)
+     */
+    setZoom(zoomLevel) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('setZoom', { zoomLevel, currentScale: this.scale });
+        try {
+            const newScale = Math.min(5, Math.max(0.1, zoomLevel));
+            const scaleChanged = newScale !== this.scale;
+            this.logger.logBranch('setZoom', 'scaleChanged', scaleChanged, {
+                oldScale: this.scale,
+                newScale
+            });
+            if (scaleChanged) {
+                this.scale = newScale;
+                this.logger.logVariableAssignment('setZoom', 'scale', this.scale);
+                this.updateCanvasTransform();
+            }
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('setZoom', 'set_zoom', executionTime);
+            this.logger.logFunctionExit('setZoom', { newScale: this.scale }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'setZoom');
+            throw this.errorFactory.createNodeEditorError('Failed to set zoom level', 'SET_ZOOM_FAILED', 'Unable to set zoom level.', 'setZoom', { zoomLevel, error: String(error) });
+        }
+    }
+    /**
+     * Get current scale/zoom level
+     *
+     * @returns The current scale value
+     */
+    getScale() {
+        return this.scale;
+    }
+    /**
+     * Update the collapse/expand toggle button text based on current node states
+     */
+    updateCollapseToggleButton() {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('updateCollapseToggleButton', { totalNodes: this.nodes.size });
+        try {
+            const toggleBtn = document.getElementById('toggleCollapseBtn');
+            if (!toggleBtn) {
+                this.logger.logWarn('Toggle collapse button not found', 'updateCollapseToggleButton');
+                return;
+            }
+            let collapsedCount = 0;
+            let totalNodes = 0;
+            this.logger.logLoop('updateCollapseToggleButton', 'nodes_checking', this.nodes.size);
+            for (const [nodeId] of this.nodes.entries()) {
+                const nodeEl = document.getElementById(nodeId);
+                if (nodeEl) {
+                    totalNodes++;
+                    const isCollapsed = nodeEl.getAttribute('data-collapsed') === 'true';
+                    if (isCollapsed) {
+                        collapsedCount++;
+                    }
+                }
+            }
+            const allCollapsed = collapsedCount === totalNodes && totalNodes > 0;
+            const buttonText = allCollapsed ? 'Expand All' : 'Collapse All';
+            this.logger.logBranch('updateCollapseToggleButton', 'allCollapsed', allCollapsed, {
+                collapsedCount,
+                totalNodes,
+                newButtonText: buttonText
+            });
+            toggleBtn.textContent = buttonText;
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('updateCollapseToggleButton', 'button_update', executionTime);
+            this.logger.logFunctionExit('updateCollapseToggleButton', {
+                buttonText,
+                collapsedCount,
+                totalNodes
+            }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'updateCollapseToggleButton');
+        }
+    }
+    /**
+     * Collapse all nodes in the graph
+     */
+    collapseAllNodes() {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('collapseAllNodes', { totalNodes: this.nodes.size });
+        try {
+            let collapsedCount = 0;
+            this.logger.logLoop('collapseAllNodes', 'nodes_processing', this.nodes.size);
+            for (const [nodeId, node] of this.nodes.entries()) {
+                const nodeEl = document.getElementById(nodeId);
+                const isCurrentlyCollapsed = (nodeEl === null || nodeEl === void 0 ? void 0 : nodeEl.getAttribute('data-collapsed')) === 'true';
+                this.logger.logBranch('collapseAllNodes', 'isCurrentlyCollapsed', isCurrentlyCollapsed, {
+                    nodeId
+                });
+                if (!isCurrentlyCollapsed && nodeEl) {
+                    const blocksEl = nodeEl.querySelector('.node-blocks');
+                    const iconEl = nodeEl.querySelector('.collapse-icon');
+                    if (blocksEl && iconEl) {
+                        blocksEl.style.display = 'none';
+                        iconEl.textContent = '▶';
+                        nodeEl.setAttribute('data-collapsed', 'true');
+                        collapsedCount++;
+                        this.logger.logInfo('Node collapsed', 'collapseAllNodes', { nodeId });
+                    }
+                }
+            }
+            this.updateConnections();
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('collapseAllNodes', 'collapse_all', executionTime);
+            this.logger.logFunctionExit('collapseAllNodes', {
+                totalNodes: this.nodes.size,
+                collapsedCount
+            }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'collapseAllNodes');
+            throw this.errorFactory.createNodeEditorError('Failed to collapse all nodes', 'COLLAPSE_ALL_FAILED', 'Unable to collapse all nodes.', 'collapseAllNodes', { totalNodes: this.nodes.size, error: String(error) });
+        }
+    }
+    /**
+     * Expand all nodes in the graph
+     */
+    expandAllNodes() {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('expandAllNodes', { totalNodes: this.nodes.size });
+        try {
+            let expandedCount = 0;
+            this.logger.logLoop('expandAllNodes', 'nodes_processing', this.nodes.size);
+            for (const [nodeId, node] of this.nodes.entries()) {
+                const nodeEl = document.getElementById(nodeId);
+                const isCurrentlyCollapsed = (nodeEl === null || nodeEl === void 0 ? void 0 : nodeEl.getAttribute('data-collapsed')) === 'true';
+                this.logger.logBranch('expandAllNodes', 'isCurrentlyCollapsed', isCurrentlyCollapsed, {
+                    nodeId
+                });
+                if (isCurrentlyCollapsed && nodeEl) {
+                    const blocksEl = nodeEl.querySelector('.node-blocks');
+                    const iconEl = nodeEl.querySelector('.collapse-icon');
+                    if (blocksEl && iconEl) {
+                        blocksEl.style.display = 'block';
+                        iconEl.textContent = '▼';
+                        nodeEl.setAttribute('data-collapsed', 'false');
+                        expandedCount++;
+                        this.logger.logInfo('Node expanded', 'expandAllNodes', { nodeId });
+                    }
+                }
+            }
+            this.updateConnections();
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('expandAllNodes', 'expand_all', executionTime);
+            this.logger.logFunctionExit('expandAllNodes', {
+                totalNodes: this.nodes.size,
+                expandedCount
+            }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'expandAllNodes');
+            throw this.errorFactory.createNodeEditorError('Failed to expand all nodes', 'EXPAND_ALL_FAILED', 'Unable to expand all nodes.', 'expandAllNodes', { totalNodes: this.nodes.size, error: String(error) });
+        }
+    }
+    /**
      * Reset canvas view to default position and scale
      */
     resetView() {
@@ -1193,6 +1456,14 @@ export class GraphEditor {
             this.logger.logVariableAssignment('resetView', 'panY', this.panY);
             this.logger.logVariableAssignment('resetView', 'scale', this.scale);
             this.updateCanvasTransform();
+            // Update zoom slider to reflect the reset
+            const zoomSlider = document.getElementById('zoomSlider');
+            const zoomValue = document.getElementById('zoomValue');
+            if (zoomSlider && zoomValue) {
+                zoomSlider.value = '100';
+                zoomValue.textContent = '100%';
+                this.logger.logInfo('Zoom slider reset to 100%', 'resetView');
+            }
             this.logger.logInfo('View reset successfully', 'resetView');
             const executionTime = performance.now() - startTime;
             this.logger.logPerformance('resetView', 'view_reset', executionTime);
@@ -1201,6 +1472,464 @@ export class GraphEditor {
         catch (error) {
             this.logger.logError(error, 'resetView');
             throw this.errorFactory.createNodeEditorError('Failed to reset view', 'RESET_VIEW_FAILED', 'Unable to reset the view.', 'resetView', { error: String(error) });
+        }
+    }
+    /**
+     * Calculate the actual height of a node based on its content
+     *
+     * @param nodeId - ID of the node to measure
+     * @returns The actual height of the node element
+     * @private
+     */
+    getNodeHeight(nodeId) {
+        const nodeEl = document.getElementById(nodeId);
+        if (nodeEl) {
+            // For collapsed nodes, use a smaller height
+            const isCollapsed = nodeEl.getAttribute('data-collapsed') === 'true';
+            if (isCollapsed) {
+                return 60; // Approximate height of just the header
+            }
+            return nodeEl.offsetHeight;
+        }
+        return this.NODE_HEIGHT; // Default fallback
+    }
+    /**
+     * Adjust vertical positions based on actual node heights
+     *
+     * @param layoutResults - Initial layout results to adjust
+     * @param nodeHeights - Map of node IDs to their actual heights
+     * @private
+     */
+    adjustVerticalPositions(layoutResults, nodeHeights) {
+        this.logger.logFunctionEntry('adjustVerticalPositions');
+        try {
+            // Group nodes by depth level
+            const nodesByDepth = new Map();
+            for (const result of layoutResults) {
+                const node = this.nodes.get(result.nodeId);
+                if (node) {
+                    const depth = node.depth;
+                    if (!nodesByDepth.has(depth)) {
+                        nodesByDepth.set(depth, []);
+                    }
+                    nodesByDepth.get(depth).push(result);
+                }
+            }
+            // Calculate cumulative Y positions for each depth level
+            let currentY = 0;
+            const depthYPositions = new Map();
+            // Process each depth level
+            const sortedDepths = Array.from(nodesByDepth.keys()).sort((a, b) => a - b);
+            for (const depth of sortedDepths) {
+                depthYPositions.set(depth, currentY);
+                // Find the maximum height in this depth level
+                const nodesAtDepth = nodesByDepth.get(depth) || [];
+                let maxHeight = 0;
+                for (const nodeResult of nodesAtDepth) {
+                    const height = nodeHeights.get(nodeResult.nodeId) || this.NODE_HEIGHT;
+                    maxHeight = Math.max(maxHeight, height);
+                }
+                // Move to next depth level with spacing
+                currentY += maxHeight + 100; // 100px vertical spacing between levels
+            }
+            // Update all node positions with the new Y coordinates
+            for (const result of layoutResults) {
+                const node = this.nodes.get(result.nodeId);
+                if (node) {
+                    const newY = depthYPositions.get(node.depth) || result.position.y;
+                    result.position.y = newY;
+                }
+            }
+            this.logger.logInfo('Vertical positions adjusted', 'adjustVerticalPositions', {
+                depthLevels: sortedDepths.length,
+                totalHeight: currentY
+            });
+            this.logger.logFunctionExit('adjustVerticalPositions');
+        }
+        catch (error) {
+            this.logger.logError(error, 'adjustVerticalPositions');
+        }
+    }
+    /**
+     * Apply automatic layout to all nodes in the graph
+     *
+     * Repositions all nodes using an optimized tree layout algorithm
+     * to ensure clear visual hierarchy and no overlapping.
+     */
+    autoLayout() {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('autoLayout', { totalNodes: this.nodes.size });
+        try {
+            // Get all nodes as an array
+            const nodes = Array.from(this.nodes.values());
+            this.logger.logInfo('Starting auto layout calculation', 'autoLayout', {
+                nodeCount: nodes.length
+            });
+            // First pass: Calculate actual node heights
+            const nodeHeights = new Map();
+            for (const node of nodes) {
+                const height = this.getNodeHeight(node.id);
+                nodeHeights.set(node.id, height);
+            }
+            // Use average height for initial calculation
+            const avgHeight = Array.from(nodeHeights.values()).reduce((sum, h) => sum + h, 0) / nodes.length || this.NODE_HEIGHT;
+            // Use the tree layout utility with dynamic sizing
+            const layout = {
+                nodeWidth: this.NODE_WIDTH,
+                nodeHeight: avgHeight,
+                horizontalSpacing: 200,
+                verticalSpacing: 50 // Base spacing, will be adjusted per node
+            };
+            // Use the tree layout algorithm for initial positions
+            const layoutResults = calculateTreeLayout(nodes, layout);
+            // Create mutable copy for adjustments
+            const mutableResults = layoutResults.map(result => ({
+                nodeId: result.nodeId,
+                position: { x: result.position.x, y: result.position.y }
+            }));
+            // Second pass: Adjust vertical positions based on actual heights
+            this.adjustVerticalPositions(mutableResults, nodeHeights);
+            // Apply the calculated positions to nodes
+            for (const result of mutableResults) {
+                const node = this.nodes.get(result.nodeId);
+                if (node) {
+                    node.position = Object.assign({}, result.position);
+                    this.positionNode(node, result.position.x, result.position.y, true); // Enable animation
+                    this.logger.logInfo('Node repositioned', 'autoLayout', {
+                        nodeId: result.nodeId,
+                        newPosition: result.position
+                    });
+                }
+            }
+            // Update connections with a delay to sync with node animations
+            setTimeout(() => {
+                this.updateConnections();
+            }, 50); // Small delay to ensure animations have started
+            // Continuously update connections during animation
+            const animationDuration = 500;
+            const updateInterval = 50;
+            let elapsed = 0;
+            const connectionUpdateInterval = setInterval(() => {
+                elapsed += updateInterval;
+                this.updateConnections();
+                if (elapsed >= animationDuration) {
+                    clearInterval(connectionUpdateInterval);
+                }
+            }, updateInterval);
+            // Center the view on the graph
+            this.centerViewOnGraph();
+            this.logger.logInfo('Auto layout completed successfully', 'autoLayout', {
+                nodesPositioned: mutableResults.length
+            });
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('autoLayout', 'layout_calculation', executionTime);
+            this.logger.logFunctionExit('autoLayout', { nodesPositioned: mutableResults.length }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'autoLayout');
+            throw this.errorFactory.createNodeEditorError('Failed to apply auto layout', 'AUTO_LAYOUT_FAILED', 'Unable to automatically arrange nodes.', 'autoLayout', { error: String(error) });
+        }
+    }
+    /**
+     * Set up node renaming functionality
+     *
+     * @param nodeEl - The node element
+     * @param node - The GraphNode
+     * @private
+     */
+    setupNodeRenaming(nodeEl, node) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('setupNodeRenaming', { nodeId: node.id });
+        try {
+            const nameInput = nodeEl.querySelector('.node-name');
+            if (!nameInput) {
+                this.logger.logWarn('Name input not found', 'setupNodeRenaming', { nodeId: node.id });
+                return;
+            }
+            // Handle blur event to save changes
+            nameInput.addEventListener('blur', () => {
+                const newName = nameInput.value.trim();
+                if (newName && newName !== node.name) {
+                    node.name = newName;
+                    this.logger.logInfo('Node renamed', 'setupNodeRenaming', {
+                        nodeId: node.id,
+                        oldName: node.name,
+                        newName
+                    });
+                }
+                else {
+                    nameInput.value = node.name; // Restore original if empty
+                }
+            });
+            // Handle enter key to save and blur
+            nameInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    nameInput.blur();
+                }
+            });
+            // Prevent node dragging when editing name
+            nameInput.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+            });
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('setupNodeRenaming', 'setup', executionTime);
+            this.logger.logFunctionExit('setupNodeRenaming', undefined, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'setupNodeRenaming', { nodeId: node.id });
+        }
+    }
+    /**
+     * Set up node resizing functionality
+     *
+     * @param nodeEl - The node element
+     * @param node - The GraphNode
+     * @private
+     */
+    setupNodeResizing(nodeEl, node) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('setupNodeResizing', { nodeId: node.id });
+        try {
+            const resizeHandle = nodeEl.querySelector('.node-resize-handle');
+            if (!resizeHandle) {
+                this.logger.logWarn('Resize handle not found', 'setupNodeResizing', { nodeId: node.id });
+                return;
+            }
+            let isResizing = false;
+            let startX = 0;
+            let startY = 0;
+            let startWidth = 0;
+            let startHeight = 0;
+            resizeHandle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                isResizing = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                startWidth = nodeEl.offsetWidth;
+                startHeight = nodeEl.offsetHeight;
+                this.logger.logUserInteraction('node_resize_start', 'node-resize-handle', { nodeId: node.id });
+            });
+            const handleMouseMove = (e) => {
+                if (!isResizing)
+                    return;
+                const deltaX = e.clientX - startX;
+                const deltaY = e.clientY - startY;
+                const newWidth = Math.max(300, Math.min(600, startWidth + deltaX));
+                const newHeight = Math.max(150, startHeight + deltaY);
+                nodeEl.style.width = newWidth + 'px';
+                nodeEl.style.minHeight = newHeight + 'px';
+                // Update connections as node size changes
+                this.updateConnections();
+            };
+            const handleMouseUp = () => {
+                if (isResizing) {
+                    isResizing = false;
+                    this.logger.logUserInteraction('node_resize_end', 'node-resize-handle', { nodeId: node.id });
+                }
+            };
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('setupNodeResizing', 'setup', executionTime);
+            this.logger.logFunctionExit('setupNodeResizing', undefined, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'setupNodeResizing', { nodeId: node.id });
+        }
+    }
+    /**
+     * Set up resize functionality for blocks within a node
+     *
+     * @param nodeEl - The node element containing blocks
+     * @private
+     */
+    setupBlockResizing(nodeEl) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('setupBlockResizing');
+        try {
+            const resizeHandles = nodeEl.querySelectorAll('.resize-handle');
+            resizeHandles.forEach((handle) => {
+                let isResizing = false;
+                let startY = 0;
+                let startHeight = 0;
+                let textarea = null;
+                handle.addEventListener('mousedown', (e) => {
+                    const mouseEvent = e;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    isResizing = true;
+                    startY = mouseEvent.clientY;
+                    const block = handle.closest('.block');
+                    if (block) {
+                        textarea = block.querySelector('textarea');
+                        if (textarea) {
+                            startHeight = textarea.offsetHeight;
+                        }
+                    }
+                    this.logger.logUserInteraction('resize_start', 'resize-handle');
+                });
+                const handleMouseMove = (e) => {
+                    if (!isResizing || !textarea)
+                        return;
+                    const deltaY = e.clientY - startY;
+                    const newHeight = Math.max(60, Math.min(400, startHeight + deltaY));
+                    textarea.style.height = newHeight + 'px';
+                };
+                const handleMouseUp = () => {
+                    if (isResizing) {
+                        isResizing = false;
+                        this.logger.logUserInteraction('resize_end', 'resize-handle');
+                    }
+                };
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+            });
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('setupBlockResizing', 'setup', executionTime);
+            this.logger.logFunctionExit('setupBlockResizing', { handlesCount: resizeHandles.length }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'setupBlockResizing');
+        }
+    }
+    /**
+     * Toggle collapse state of a node
+     *
+     * @param nodeId - ID of the node to toggle
+     * @private
+     */
+    toggleNodeCollapse(nodeId) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('toggleNodeCollapse', { nodeId });
+        try {
+            const nodeEl = document.getElementById(nodeId);
+            if (!nodeEl) {
+                this.logger.logWarn('Node element not found', 'toggleNodeCollapse', { nodeId });
+                return;
+            }
+            const isCollapsed = nodeEl.getAttribute('data-collapsed') === 'true';
+            const newState = !isCollapsed;
+            nodeEl.setAttribute('data-collapsed', String(newState));
+            const blocksEl = nodeEl.querySelector('.node-blocks');
+            const iconEl = nodeEl.querySelector('.collapse-icon');
+            if (blocksEl && iconEl) {
+                if (newState) {
+                    blocksEl.style.display = 'none';
+                    iconEl.textContent = '▶';
+                    nodeEl.classList.add('collapsed');
+                }
+                else {
+                    blocksEl.style.display = 'block';
+                    iconEl.textContent = '▼';
+                    nodeEl.classList.remove('collapsed');
+                }
+            }
+            this.logger.logInfo('Node collapse toggled', 'toggleNodeCollapse', {
+                nodeId,
+                collapsed: newState
+            });
+            // Update the collapse toggle button to reflect current state
+            this.updateCollapseToggleButton();
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('toggleNodeCollapse', 'toggle', executionTime);
+            this.logger.logFunctionExit('toggleNodeCollapse', { collapsed: newState }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'toggleNodeCollapse', { nodeId });
+        }
+    }
+    /**
+     * Toggle minimize state of a block
+     *
+     * @param blockId - ID of the block to toggle
+     * @private
+     */
+    toggleBlockMinimize(blockId) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('toggleBlockMinimize', { blockId });
+        try {
+            const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+            if (!blockEl) {
+                this.logger.logWarn('Block element not found', 'toggleBlockMinimize', { blockId });
+                return;
+            }
+            const isMinimized = blockEl.getAttribute('data-minimized') === 'true';
+            const newState = !isMinimized;
+            blockEl.setAttribute('data-minimized', String(newState));
+            const contentEl = blockEl.querySelector('.block-content');
+            const iconEl = blockEl.querySelector('.minimize-icon');
+            if (contentEl && iconEl) {
+                if (newState) {
+                    contentEl.style.display = 'none';
+                    iconEl.textContent = '▶';
+                }
+                else {
+                    contentEl.style.display = 'block';
+                    iconEl.textContent = '▼';
+                }
+            }
+            this.logger.logInfo('Block minimize toggled', 'toggleBlockMinimize', {
+                blockId,
+                minimized: newState
+            });
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('toggleBlockMinimize', 'toggle', executionTime);
+            this.logger.logFunctionExit('toggleBlockMinimize', { minimized: newState }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'toggleBlockMinimize', { blockId });
+        }
+    }
+    /**
+     * Center the canvas view on all nodes
+     *
+     * @private
+     */
+    centerViewOnGraph() {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('centerViewOnGraph');
+        try {
+            if (this.nodes.size === 0) {
+                this.logger.logWarn('No nodes to center on', 'centerViewOnGraph');
+                return;
+            }
+            // Calculate bounding box of all nodes
+            let minX = Infinity, minY = Infinity;
+            let maxX = -Infinity, maxY = -Infinity;
+            for (const node of this.nodes.values()) {
+                minX = Math.min(minX, node.position.x);
+                minY = Math.min(minY, node.position.y);
+                const nodeEl = document.getElementById(node.id);
+                const nodeWidth = nodeEl ? nodeEl.offsetWidth : this.NODE_WIDTH;
+                const nodeHeight = nodeEl ? nodeEl.offsetHeight : this.NODE_HEIGHT;
+                maxX = Math.max(maxX, node.position.x + nodeWidth);
+                maxY = Math.max(maxY, node.position.y + nodeHeight);
+            }
+            // Calculate center of bounding box
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            // Get canvas dimensions
+            const canvasRect = this.canvas.getBoundingClientRect();
+            const canvasWidth = canvasRect.width;
+            const canvasHeight = canvasRect.height;
+            // Calculate pan to center the graph
+            this.panX = (canvasWidth / 2) - (centerX * this.scale);
+            this.panY = (canvasHeight / 2) - (centerY * this.scale);
+            this.updateCanvasTransform();
+            this.logger.logInfo('View centered on graph', 'centerViewOnGraph', {
+                boundingBox: { minX, minY, maxX, maxY },
+                center: { centerX, centerY },
+                pan: { panX: this.panX, panY: this.panY }
+            });
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('centerViewOnGraph', 'centering', executionTime);
+            this.logger.logFunctionExit('centerViewOnGraph', undefined, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'centerViewOnGraph');
+            // Don't throw, this is a helper method
         }
     }
     /**

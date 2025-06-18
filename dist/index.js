@@ -64,15 +64,22 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
     try {
         // Set up control button handlers
         const addRootBtn = document.getElementById('addRootBtn');
-        const zoomInBtn = document.getElementById('zoomInBtn');
-        const zoomOutBtn = document.getElementById('zoomOutBtn');
+        const autoLayoutBtn = document.getElementById('autoLayoutBtn');
+        const toggleCollapseBtn = document.getElementById('toggleCollapseBtn');
         const resetViewBtn = document.getElementById('resetViewBtn');
         const exportBtn = document.getElementById('exportBtn');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const zoomValue = document.getElementById('zoomValue');
+        const zoomInBtn = document.getElementById('zoomInBtn');
+        const zoomOutBtn = document.getElementById('zoomOutBtn');
         logger.logVariableAssignment('setupGlobalEventHandlers', 'addRootBtnFound', !!addRootBtn);
-        logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomInBtnFound', !!zoomInBtn);
-        logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomOutBtnFound', !!zoomOutBtn);
+        logger.logVariableAssignment('setupGlobalEventHandlers', 'autoLayoutBtnFound', !!autoLayoutBtn);
+        logger.logVariableAssignment('setupGlobalEventHandlers', 'toggleCollapseBtnFound', !!toggleCollapseBtn);
         logger.logVariableAssignment('setupGlobalEventHandlers', 'resetViewBtnFound', !!resetViewBtn);
         logger.logVariableAssignment('setupGlobalEventHandlers', 'exportBtnFound', !!exportBtn);
+        logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomSliderFound', !!zoomSlider);
+        logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomInBtnFound', !!zoomInBtn);
+        logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomOutBtnFound', !!zoomOutBtn);
         if (addRootBtn) {
             addRootBtn.addEventListener('click', () => {
                 try {
@@ -86,11 +93,55 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
                 }
             });
         }
+        if (autoLayoutBtn) {
+            autoLayoutBtn.addEventListener('click', () => {
+                try {
+                    logger.logUserInteraction('auto_layout_click', 'autoLayoutBtn');
+                    editor.autoLayout();
+                    logger.logInfo('Auto layout applied successfully via button', 'setupGlobalEventHandlers');
+                }
+                catch (error) {
+                    logger.logError(error, 'setupGlobalEventHandlers.autoLayout');
+                    handleUserFacingError(error, 'Failed to apply auto layout');
+                }
+            });
+        }
+        if (toggleCollapseBtn) {
+            toggleCollapseBtn.addEventListener('click', () => {
+                try {
+                    const currentText = toggleCollapseBtn.textContent;
+                    const isCollapseMode = currentText === 'Collapse All';
+                    logger.logUserInteraction('toggle_collapse_click', 'toggleCollapseBtn', {
+                        currentMode: isCollapseMode ? 'collapse' : 'expand'
+                    });
+                    if (isCollapseMode) {
+                        editor.collapseAllNodes();
+                        toggleCollapseBtn.textContent = 'Expand All';
+                        logger.logInfo('All nodes collapsed, button changed to Expand All', 'setupGlobalEventHandlers');
+                    }
+                    else {
+                        editor.expandAllNodes();
+                        toggleCollapseBtn.textContent = 'Collapse All';
+                        logger.logInfo('All nodes expanded, button changed to Collapse All', 'setupGlobalEventHandlers');
+                    }
+                }
+                catch (error) {
+                    logger.logError(error, 'setupGlobalEventHandlers.toggleCollapse');
+                    handleUserFacingError(error, 'Failed to toggle collapse/expand');
+                }
+            });
+        }
         if (zoomInBtn) {
             zoomInBtn.addEventListener('click', () => {
                 try {
                     logger.logUserInteraction('zoom_in_click', 'zoomInBtn');
                     editor.zoomIn();
+                    // Update slider to reflect new zoom level
+                    if (zoomSlider && zoomValue) {
+                        const currentScale = Math.round(editor.getScale() * 100);
+                        zoomSlider.value = currentScale.toString();
+                        zoomValue.textContent = `${currentScale}%`;
+                    }
                     logger.logInfo('Zoomed in successfully via button', 'setupGlobalEventHandlers');
                 }
                 catch (error) {
@@ -104,11 +155,32 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
                 try {
                     logger.logUserInteraction('zoom_out_click', 'zoomOutBtn');
                     editor.zoomOut();
+                    // Update slider to reflect new zoom level
+                    if (zoomSlider && zoomValue) {
+                        const currentScale = Math.round(editor.getScale() * 100);
+                        zoomSlider.value = currentScale.toString();
+                        zoomValue.textContent = `${currentScale}%`;
+                    }
                     logger.logInfo('Zoomed out successfully via button', 'setupGlobalEventHandlers');
                 }
                 catch (error) {
                     logger.logError(error, 'setupGlobalEventHandlers.zoomOut');
                     handleUserFacingError(error, 'Failed to zoom out');
+                }
+            });
+        }
+        if (zoomSlider && zoomValue) {
+            zoomSlider.addEventListener('input', () => {
+                try {
+                    const zoomLevel = parseInt(zoomSlider.value) / 100;
+                    logger.logUserInteraction('zoom_slider_change', 'zoomSlider', { zoomLevel });
+                    editor.setZoom(zoomLevel);
+                    zoomValue.textContent = `${zoomSlider.value}%`;
+                    logger.logInfo('Zoom level changed via slider', 'setupGlobalEventHandlers', { zoomLevel });
+                }
+                catch (error) {
+                    logger.logError(error, 'setupGlobalEventHandlers.zoomSlider');
+                    handleUserFacingError(error, 'Failed to change zoom level');
                 }
             });
         }

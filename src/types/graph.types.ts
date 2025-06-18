@@ -42,6 +42,8 @@ export interface NodeBlock {
 export interface GraphNode {
   /** Unique identifier for the node */
   readonly id: string;
+  /** Custom display name for the node */
+  name: string;
   /** ID of parent node, null for root nodes */
   readonly parentId: string | null;
   /** Array of child node IDs */
