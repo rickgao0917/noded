@@ -56,8 +56,9 @@
             max-width: 400px;
             padding: 16px;
             cursor: move;
-            transition: all 0.2s ease;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            will-change: transform;
         }
 
         .node:hover {
@@ -191,6 +192,12 @@
             stroke-width: 2;
             fill: none;
             opacity: 0.6;
+            marker-end: url(#arrowhead);
+        }
+        
+        .connection-arrow {
+            fill: #606060;
+            opacity: 0.6;
         }
 
         .controls {
@@ -235,6 +242,8 @@
     <div class="editor-container">
         <div class="controls">
             <button class="control-btn" id="addRootBtn">Add Root</button>
+            <button class="control-btn" id="zoomInBtn">Zoom In</button>
+            <button class="control-btn" id="zoomOutBtn">Zoom Out</button>
             <button class="control-btn" id="resetViewBtn">Reset View</button>
             <button class="control-btn" id="exportBtn">Export</button>
         </div>
@@ -248,6 +257,7 @@
         <div class="info">
             <strong>Controls:</strong><br>
             • Click & drag to pan canvas<br>
+            • Scroll to zoom in/out<br>
             • Drag nodes to reposition<br>
             • Click "Add Child" to create branches<br>
             • Edit blocks inline with text areas

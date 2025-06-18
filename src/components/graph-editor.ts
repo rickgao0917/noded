@@ -156,8 +156,10 @@ export class GraphEditor {
           const deltaX = e.clientX - this.lastPanX;
           const deltaY = e.clientY - this.lastPanY;
           
-          this.panX += deltaX;
-          this.panY += deltaY;
+          // Apply damping factor for smoother movement
+          const dampingFactor = 1.2;
+          this.panX += deltaX * dampingFactor;
+          this.panY += deltaY * dampingFactor;
           
           this.logger.logVariableAssignment('setupEventListeners', 'panX', this.panX);
           this.logger.logVariableAssignment('setupEventListeners', 'panY', this.panY);
@@ -182,6 +184,44 @@ export class GraphEditor {
         
         this.logger.logVariableAssignment('setupEventListeners', 'isPanning', false);
         this.logger.logVariableAssignment('setupEventListeners', 'isDragging', false);
+      });
+
+      // Zoom event handler
+      this.canvas.addEventListener('wheel', (e: WheelEvent) => {
+        e.preventDefault();
+        
+        this.logger.logUserInteraction('canvas_wheel', this.canvas.id, {
+          deltaY: e.deltaY,
+          currentScale: this.scale
+        });
+        
+        const zoomSpeed = 0.001;
+        const deltaScale = -e.deltaY * zoomSpeed;
+        const newScale = Math.max(0.1, Math.min(5, this.scale + deltaScale));
+        
+        if (newScale !== this.scale) {
+          // Get mouse position relative to canvas
+          const rect = this.canvas.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          
+          // Calculate zoom center point
+          const zoomPointX = (mouseX - this.panX) / this.scale;
+          const zoomPointY = (mouseY - this.panY) / this.scale;
+          
+          // Update scale
+          this.scale = newScale;
+          
+          // Adjust pan to keep zoom centered on mouse position
+          this.panX = mouseX - zoomPointX * this.scale;
+          this.panY = mouseY - zoomPointY * this.scale;
+          
+          this.logger.logVariableAssignment('setupEventListeners', 'scale', this.scale);
+          this.logger.logVariableAssignment('setupEventListeners', 'panX', this.panX);
+          this.logger.logVariableAssignment('setupEventListeners', 'panY', this.panY);
+          
+          this.updateCanvasTransform();
+        }
       });
 
       const executionTime = performance.now() - startTime;
@@ -621,16 +661,21 @@ export class GraphEditor {
           const deltaX = (e.clientX - startX) / this.scale;
           const deltaY = (e.clientY - startY) / this.scale;
           
+          // Apply slight acceleration for more responsive dragging
+          const accelerationFactor = 1.1;
+          const adjustedDeltaX = deltaX * accelerationFactor;
+          const adjustedDeltaY = deltaY * accelerationFactor;
+          
           // Log node dragging action
           this.logger.logUserInteraction('node_drag', node.id, {
-            deltaX,
-            deltaY,
-            newX: startNodeX + deltaX,
-            newY: startNodeY + deltaY
+            deltaX: adjustedDeltaX,
+            deltaY: adjustedDeltaY,
+            newX: startNodeX + adjustedDeltaX,
+            newY: startNodeY + adjustedDeltaY
           });
           
-          node.position.x = startNodeX + deltaX;
-          node.position.y = startNodeY + deltaY;
+          node.position.x = startNodeX + adjustedDeltaX;
+          node.position.y = startNodeY + adjustedDeltaY;
           
           this.logger.logVariableAssignment('setupNodeDragging', 'nodePositionX', node.position.x);
           this.logger.logVariableAssignment('setupNodeDragging', 'nodePositionY', node.position.y);
@@ -1318,6 +1363,9 @@ export class GraphEditor {
       this.connectionsEl.innerHTML = '';
       this.logger.logInfo('Cleared existing connections', 'updateConnections');
       
+      // Create arrow marker definition
+      this.createArrowMarker();
+      
       let connectionsCreated = 0;
       
       this.logger.logLoop('updateConnections', 'nodes_processing', this.nodes.size);
@@ -1363,6 +1411,46 @@ export class GraphEditor {
   }
 
   /**
+   * Create SVG arrow marker definition
+   * 
+   * @private
+   */
+  private createArrowMarker(): void {
+    this.logger.logFunctionEntry('createArrowMarker');
+    
+    try {
+      // Check if marker already exists
+      const existingDefs = this.connectionsEl.querySelector('defs');
+      if (existingDefs) return;
+      
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+      
+      marker.setAttribute('id', 'arrowhead');
+      marker.setAttribute('markerWidth', '10');
+      marker.setAttribute('markerHeight', '7');
+      marker.setAttribute('refX', '9');
+      marker.setAttribute('refY', '3.5');
+      marker.setAttribute('orient', 'auto');
+      
+      const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
+      polygon.setAttribute('class', 'connection-arrow');
+      
+      marker.appendChild(polygon);
+      defs.appendChild(marker);
+      this.connectionsEl.appendChild(defs);
+      
+      this.logger.logInfo('Arrow marker created successfully', 'createArrowMarker');
+      this.logger.logFunctionExit('createArrowMarker');
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'createArrowMarker');
+      // Non-critical error, continue without arrows
+    }
+  }
+
+  /**
    * Draw an SVG connection line between parent and child nodes
    * 
    * @param parent - The parent GraphNode
@@ -1391,9 +1479,11 @@ export class GraphEditor {
       this.logger.logVariableAssignment('drawConnection', 'childCenterX', childCenterX);
       this.logger.logVariableAssignment('drawConnection', 'childCenterY', childCenterY);
       
-      // Create a curved path
+      // Create a curved path with adjusted end point for arrow
       const midY = (parentCenterY + childCenterY) / 2;
-      const pathData = `M ${parentCenterX} ${parentCenterY + 50} C ${parentCenterX} ${midY} ${childCenterX} ${midY} ${childCenterX} ${childCenterY}`;
+      // Shorten the path slightly to accommodate the arrow marker
+      const adjustedChildY = childCenterY + 5;
+      const pathData = `M ${parentCenterX} ${parentCenterY + 50} C ${parentCenterX} ${midY} ${childCenterX} ${midY} ${childCenterX} ${adjustedChildY}`;
       
       line.setAttribute('d', pathData);
       line.setAttribute('class', 'connection-line');
@@ -1460,6 +1550,96 @@ export class GraphEditor {
         'ADD_ROOT_FAILED',
         'Unable to create new root node.',
         'addRootNode',
+        { error: String(error) }
+      );
+    }
+  }
+
+  /**
+   * Zoom in the canvas view
+   */
+  public zoomIn(): void {
+    const startTime = performance.now();
+    this.logger.logFunctionEntry('zoomIn', { currentScale: this.scale });
+
+    try {
+      const zoomStep = 0.2;
+      const newScale = Math.min(5, this.scale + zoomStep);
+      
+      if (newScale !== this.scale) {
+        // Zoom towards center of canvas
+        const rect = this.canvas.getBoundingClientRect();
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        
+        const zoomPointX = (centerX - this.panX) / this.scale;
+        const zoomPointY = (centerY - this.panY) / this.scale;
+        
+        this.scale = newScale;
+        
+        this.panX = centerX - zoomPointX * this.scale;
+        this.panY = centerY - zoomPointY * this.scale;
+        
+        this.logger.logVariableAssignment('zoomIn', 'scale', this.scale);
+        this.updateCanvasTransform();
+      }
+      
+      const executionTime = performance.now() - startTime;
+      this.logger.logPerformance('zoomIn', 'zoom_in', executionTime);
+      this.logger.logFunctionExit('zoomIn', { newScale: this.scale }, executionTime);
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'zoomIn');
+      throw this.errorFactory.createNodeEditorError(
+        'Failed to zoom in',
+        'ZOOM_IN_FAILED',
+        'Unable to zoom in.',
+        'zoomIn',
+        { error: String(error) }
+      );
+    }
+  }
+
+  /**
+   * Zoom out the canvas view
+   */
+  public zoomOut(): void {
+    const startTime = performance.now();
+    this.logger.logFunctionEntry('zoomOut', { currentScale: this.scale });
+
+    try {
+      const zoomStep = 0.2;
+      const newScale = Math.max(0.1, this.scale - zoomStep);
+      
+      if (newScale !== this.scale) {
+        // Zoom from center of canvas
+        const rect = this.canvas.getBoundingClientRect();
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        
+        const zoomPointX = (centerX - this.panX) / this.scale;
+        const zoomPointY = (centerY - this.panY) / this.scale;
+        
+        this.scale = newScale;
+        
+        this.panX = centerX - zoomPointX * this.scale;
+        this.panY = centerY - zoomPointY * this.scale;
+        
+        this.logger.logVariableAssignment('zoomOut', 'scale', this.scale);
+        this.updateCanvasTransform();
+      }
+      
+      const executionTime = performance.now() - startTime;
+      this.logger.logPerformance('zoomOut', 'zoom_out', executionTime);
+      this.logger.logFunctionExit('zoomOut', { newScale: this.scale }, executionTime);
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'zoomOut');
+      throw this.errorFactory.createNodeEditorError(
+        'Failed to zoom out',
+        'ZOOM_OUT_FAILED',
+        'Unable to zoom out.',
+        'zoomOut',
         { error: String(error) }
       );
     }

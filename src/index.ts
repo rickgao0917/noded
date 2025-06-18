@@ -90,10 +90,14 @@ function setupGlobalEventHandlers(
   try {
     // Set up control button handlers
     const addRootBtn = document.getElementById('addRootBtn');
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
     const resetViewBtn = document.getElementById('resetViewBtn');
     const exportBtn = document.getElementById('exportBtn');
     
     logger.logVariableAssignment('setupGlobalEventHandlers', 'addRootBtnFound', !!addRootBtn);
+    logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomInBtnFound', !!zoomInBtn);
+    logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomOutBtnFound', !!zoomOutBtn);
     logger.logVariableAssignment('setupGlobalEventHandlers', 'resetViewBtnFound', !!resetViewBtn);
     logger.logVariableAssignment('setupGlobalEventHandlers', 'exportBtnFound', !!exportBtn);
     
@@ -106,6 +110,32 @@ function setupGlobalEventHandlers(
         } catch (error) {
           logger.logError(error as Error, 'setupGlobalEventHandlers.addRoot');
           handleUserFacingError(error as Error, 'Failed to add root node');
+        }
+      });
+    }
+    
+    if (zoomInBtn) {
+      zoomInBtn.addEventListener('click', () => {
+        try {
+          logger.logUserInteraction('zoom_in_click', 'zoomInBtn');
+          editor.zoomIn();
+          logger.logInfo('Zoomed in successfully via button', 'setupGlobalEventHandlers');
+        } catch (error) {
+          logger.logError(error as Error, 'setupGlobalEventHandlers.zoomIn');
+          handleUserFacingError(error as Error, 'Failed to zoom in');
+        }
+      });
+    }
+    
+    if (zoomOutBtn) {
+      zoomOutBtn.addEventListener('click', () => {
+        try {
+          logger.logUserInteraction('zoom_out_click', 'zoomOutBtn');
+          editor.zoomOut();
+          logger.logInfo('Zoomed out successfully via button', 'setupGlobalEventHandlers');
+        } catch (error) {
+          logger.logError(error as Error, 'setupGlobalEventHandlers.zoomOut');
+          handleUserFacingError(error as Error, 'Failed to zoom out');
         }
       });
     }
