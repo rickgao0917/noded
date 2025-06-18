@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  noded:
+    build: .
+    ports:
+      - "8000:8000"
+    container_name: noded-app
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./dist:/app/dist:ro
+      - ./index.html:/app/index.html:ro
+      - ./standalone.html:/app/standalone.html:ro
