@@ -142,6 +142,26 @@ This project strictly follows the comprehensive standards defined in `ts_readme.
 - Graceful degradation for DOM manipulation failures
 - Comprehensive validation preventing invalid tree states
 
+### Recent Improvements (2025-06-18)
+
+**Performance Optimizations:**
+- **Enhanced Dragging Speed**: Added damping factor (1.2x) for canvas panning and acceleration factor (1.1x) for node dragging
+- **Smooth Transitions**: Removed position transitions from nodes, kept only for visual feedback (borders, shadows)
+- **CSS Performance**: Added `will-change: transform` for better rendering performance
+
+**New Features:**
+- **Directional Arrows**: SVG arrow markers show parent-child relationships and flow direction
+- **Zoom Functionality**: 
+  - Mouse wheel zoom (0.1x to 5x range) centered on cursor position
+  - Zoom In/Out buttons with fixed step increments (0.2)
+  - Zoom controls integrated with existing pan and drag functionality
+  - Reset View also resets zoom to default (1x)
+
+**User Interface Updates:**
+- Added Zoom In and Zoom Out buttons to control panel
+- Updated help text to include scroll-to-zoom instructions
+- Arrow markers styled to match connection line aesthetics
+
 ### Development Notes
 
 **Deployment Options:**
