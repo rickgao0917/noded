@@ -420,6 +420,60 @@ tests/
 - Configuration excluded from version control
 - Clear error messages guide users to proper API key setup
 
+### Debug Configuration System (2025-06-19)
+
+**Granular Debug Control:**
+- **Configuration File**: Set debug options in `config.js` (copy from `config.example.js`)
+- **Log Levels**: Enable/disable TRACE, DEBUG, INFO, WARN, ERROR, FATAL individually
+- **Log Types**: Filter by type (function_entry, function_exit, branch_execution, user_interaction, performance_metric, etc.)
+- **Service Filtering**: Show/hide logs from specific services (GraphEditor, Logger, GeminiService, etc.)
+- **Function Filtering**: Include/exclude functions using regex patterns
+- **Performance Thresholds**: Auto-elevate log levels for slow operations
+- **Output Formatting**: Pretty print, timestamps, metadata, stack trace options
+
+**Runtime Debug Control (Browser Console):**
+```javascript
+window.debug.enable()           // Enable all logging
+window.debug.disable()          // Disable all logging
+window.debug.verbose()          // Show all debug information
+window.debug.minimal()          // Show only warnings and errors
+window.debug.showOnly('functionName')  // Show only specific functions
+window.debug.hideFunction('functionName')  // Hide specific functions
+window.debug.showService('GraphEditor')  // Show only specific services
+window.debug.performanceOnly()  // Show only performance metrics
+window.debug.showConfig()       // Display current configuration
+window.debug.help()            // Show available commands
+```
+
+**Example Debug Configuration:**
+```javascript
+window.NODE_EDITOR_CONFIG = {
+  GEMINI_API_KEY: 'your-api-key-here',
+  DEBUG: {
+    enabled: true,
+    levels: { INFO: true, WARN: true, ERROR: true, FATAL: true },
+    types: { user_interaction: true, performance_metric: true, business_logic: true },
+    services: { GraphEditor: true, GeminiService: true },
+    functions: { include: ['.*'], exclude: ['render.*', 'log.*'] },
+    performance: { warnThreshold: 10, errorThreshold: 100 },
+    format: { pretty: true, includeTimestamp: true, maxDepth: 3 }
+  }
+};
+```
+
+**Implementation Details:**
+- Modified `Logger` class to support runtime configuration
+- Created `DebugHelper` class exposed as `window.debug` for browser console control
+- Configuration loaded from `window.NODE_EDITOR_CONFIG.DEBUG` at startup
+- Comprehensive documentation in `DEBUG_CONFIG.md`
+- All logging respects configuration without performance impact
+
+**Gemini API Streaming Fix:**
+- Fixed JSON parsing for multi-line streaming responses
+- Improved buffer handling for partial JSON objects
+- Reduced console noise by changing parse logs to DEBUG level
+- Proper extraction of text content from nested JSON structure
+
 ### Docker Configuration
 
 **Container Architecture:**
