@@ -4,12 +4,12 @@
  */
 
 export enum LogLevel {
-  TRACE = 'trace',
-  DEBUG = 'debug', 
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-  FATAL = 'fatal'
+  TRACE = 'TRACE',
+  DEBUG = 'DEBUG', 
+  INFO = 'INFO',
+  WARN = 'WARN',
+  ERROR = 'ERROR',
+  FATAL = 'FATAL'
 }
 
 export interface LogEntry {
@@ -144,11 +144,11 @@ export class Logger {
   /**
    * Log business logic milestones
    */
-  public logInfo(message: string, functionName?: string, metadata?: Record<string, unknown>): void {
+  public logInfo(message: string, functionName?: string, metadata?: Record<string, unknown> | null): void {
     this.log(LogLevel.INFO, message, {
       type: 'business_logic',
       functionName,
-      ...metadata
+      ...(metadata || {})
     });
   }
 
@@ -169,6 +169,28 @@ export class Logger {
   public logFatal(message: string, functionName?: string, metadata?: Record<string, unknown>): void {
     this.log(LogLevel.FATAL, message, {
       type: 'fatal',
+      functionName,
+      ...metadata
+    });
+  }
+
+  /**
+   * Log trace level messages for detailed execution flow
+   */
+  public logTrace(message: string, functionName?: string, metadata?: Record<string, unknown>): void {
+    this.log(LogLevel.TRACE, message, {
+      type: 'trace',
+      functionName,
+      ...metadata
+    });
+  }
+
+  /**
+   * Log debug level messages for variable state information
+   */
+  public logDebug(message: string, functionName?: string, metadata?: Record<string, unknown>): void {
+    this.log(LogLevel.DEBUG, message, {
+      type: 'debug',
       functionName,
       ...metadata
     });

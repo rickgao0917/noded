@@ -195,7 +195,7 @@ export class ErrorFactory {
   public createContext(functionName: string, parameters?: Record<string, unknown>): ErrorContext {
     return {
       functionName,
-      parameters,
+      parameters: parameters ?? undefined,
       timestamp: new Date().toISOString(),
       correlationId: this.correlationId
     };

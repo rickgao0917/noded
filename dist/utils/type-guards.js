@@ -15,7 +15,7 @@ import { ErrorFactory } from '../types/errors.js';
  */
 export function isNodeBlockType(value) {
     return typeof value === 'string' &&
-        ['prompt', 'response', 'markdown'].includes(value);
+        ['chat', 'response', 'markdown'].includes(value);
 }
 /**
  * Type guard for Position interface

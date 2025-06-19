@@ -10,7 +10,7 @@
  * 
  * @public
  */
-export type NodeBlockType = 'chat' | 'response' | 'markdown';
+export type NodeBlockType = 'chat' | 'response' | 'markdown' | 'prompt';
 
 /**
  * Individual content block within a graph node

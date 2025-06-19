@@ -94,7 +94,7 @@ export class Logger {
      * Log business logic milestones
      */
     logInfo(message, functionName, metadata) {
-        this.log(LogLevel.INFO, message, Object.assign({ type: 'business_logic', functionName }, metadata));
+        this.log(LogLevel.INFO, message, Object.assign({ type: 'business_logic', functionName }, (metadata || {})));
     }
     /**
      * Log warnings for recoverable issues
@@ -107,6 +107,18 @@ export class Logger {
      */
     logFatal(message, functionName, metadata) {
         this.log(LogLevel.FATAL, message, Object.assign({ type: 'fatal', functionName }, metadata));
+    }
+    /**
+     * Log trace level messages for detailed execution flow
+     */
+    logTrace(message, functionName, metadata) {
+        this.log(LogLevel.TRACE, message, Object.assign({ type: 'trace', functionName }, metadata));
+    }
+    /**
+     * Log debug level messages for variable state information
+     */
+    logDebug(message, functionName, metadata) {
+        this.log(LogLevel.DEBUG, message, Object.assign({ type: 'debug', functionName }, metadata));
     }
     log(level, message, metadata = {}) {
         const logEntry = {

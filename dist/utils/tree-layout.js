@@ -12,9 +12,9 @@
  * - Child nodes are evenly distributed under their parent
  * - No overlapping occurs between node subtrees
  *
- * @param nodes - Array of all nodes to be positioned
+ * @param nodes - Map of all nodes to be positioned
  * @param layout - Layout configuration specifying node dimensions and spacing
- * @returns Array of calculated positions for each node
+ * @returns Map of nodes with updated positions
  *
  * @example
  * ```typescript
@@ -29,25 +29,28 @@
  * @public
  */
 export function calculateTreeLayout(nodes, layout) {
-    const nodeMap = new Map();
+    if (nodes.size === 0) {
+        return new Map();
+    }
+    const result = new Map(nodes);
+    const nodeArray = Array.from(nodes.values());
     const childrenMap = new Map();
-    for (const node of nodes) {
-        nodeMap.set(node.id, node);
+    // Build children map
+    for (const node of nodeArray) {
         if (node.parentId) {
             const siblings = childrenMap.get(node.parentId) || [];
             childrenMap.set(node.parentId, [...siblings, node]);
         }
     }
-    const rootNodes = nodes.filter(node => node.parentId === null);
-    const results = [];
+    const rootNodes = nodeArray.filter(node => node.parentId === null);
     let rootOffset = 0;
     for (const rootNode of rootNodes) {
         const subtreeWidth = calculateSubtreeWidth(rootNode, childrenMap, layout);
         const rootX = rootOffset + subtreeWidth / 2;
-        layoutSubtree(rootNode, childrenMap, layout, rootX, 0, results);
+        layoutSubtree(rootNode, childrenMap, layout, rootX, 0, result);
         rootOffset += subtreeWidth + layout.horizontalSpacing;
     }
-    return results;
+    return result;
 }
 /**
  * Calculate the total width required for a node's subtree
@@ -78,16 +81,15 @@ function calculateSubtreeWidth(node, childrenMap, layout) {
  * @param layout - Layout configuration
  * @param centerX - Horizontal center position for the root node
  * @param depth - Current depth level (0 = root)
- * @param results - Array to accumulate positioning results
+ * @param result - Map to update with new positions
  *
  * @internal
  */
-function layoutSubtree(node, childrenMap, layout, centerX, depth, results) {
-    const y = depth * (layout.nodeHeight + layout.verticalSpacing);
-    results.push({
-        nodeId: node.id,
-        position: { x: centerX - layout.nodeWidth / 2, y }
-    });
+function layoutSubtree(node, childrenMap, layout, centerX, depth, result) {
+    const y = depth * layout.verticalSpacing;
+    // Update the node's position
+    const updatedNode = Object.assign(Object.assign({}, node), { position: { x: centerX, y } });
+    result.set(node.id, updatedNode);
     const children = childrenMap.get(node.id) || [];
     if (children.length === 0) {
         return;
@@ -100,8 +102,10 @@ function layoutSubtree(node, childrenMap, layout, centerX, depth, results) {
     for (let i = 0; i < children.length; i++) {
         const child = children[i];
         const childWidth = childWidths[i];
-        const childCenterX = currentX + childWidth / 2;
-        layoutSubtree(child, childrenMap, layout, childCenterX, depth + 1, results);
-        currentX += childWidth + layout.horizontalSpacing;
+        if (child && childWidth !== undefined) {
+            const childCenterX = currentX + childWidth / 2;
+            layoutSubtree(child, childrenMap, layout, childCenterX, depth + 1, result);
+            currentX += childWidth + layout.horizontalSpacing;
+        }
     }
 }

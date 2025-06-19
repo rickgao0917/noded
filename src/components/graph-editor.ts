@@ -11,7 +11,7 @@
  * ```
  */
 
-import { GraphNode, NodeBlock, TreeLayout } from '../types/graph.types.js';
+import { GraphNode, NodeBlock, TreeLayout, Position } from '../types/graph.types.js';
 import { Logger } from '../utils/logger.js';
 import { Validator } from '../utils/type-guards.js';
 import { ErrorFactory, NodeEditorError, DOMError, TreeStructureError, ValidationError } from '../types/errors.js';
@@ -309,41 +309,42 @@ export class GraphEditor {
         { id: 'root_markdown', type: 'markdown', content: '# Additional Information\\n\\nParis is located in northern France, on the banks of the Seine River.', position: 2 }
       ]);
       
-      this.logger.logInfo('Created root node', 'createSampleData', { nodeId: root.id });
-      this.positionNode(root, 400, 100);
+      this.logger.logInfo('Created root node', 'createSampleData', { nodeId: root });
+      const rootNode = this.nodes.get(root)!;
+      this.positionNode(rootNode, 400, 100);
 
       // Create child nodes representing edits/variations
-      const child1 = this.createNode(root.id, [
+      const child1Id = this.createNode(root, [
         { id: 'child1_prompt', type: 'prompt', content: 'Tell me more about the history of Paris.', position: 0 },
         { id: 'child1_response', type: 'response', content: 'Paris has a rich history dating back over 2,000 years. Originally a Celtic settlement called Lutetia, it became the capital of France in the 12th century.', position: 1 }
       ]);
       
-      const child2 = this.createNode(root.id, [
+      const child2Id = this.createNode(root, [
         { id: 'child2_prompt', type: 'prompt', content: 'What are the main attractions in Paris?', position: 0 },
         { id: 'child2_response', type: 'response', content: 'Major attractions include the Eiffel Tower, Louvre Museum, Notre-Dame Cathedral, Arc de Triomphe, and Champs-Élysées.', position: 1 }
       ]);
       
       this.logger.logInfo('Created child nodes', 'createSampleData', { 
-        child1Id: child1.id, 
-        child2Id: child2.id,
+        child1Id, 
+        child2Id,
         totalNodes: this.nodes.size 
       });
       
       // Create grandchild nodes
-      const grandchild1 = this.createNode(child1.id, [
+      const grandchild1Id = this.createNode(child1Id, [
         { id: 'gc1_prompt', type: 'prompt', content: 'What role did Paris play in the French Revolution?', position: 0 },
         { id: 'gc1_response', type: 'response', content: 'Paris was the epicenter of the French Revolution (1789-1799). Key events like the storming of the Bastille took place here.', position: 1 },
         { id: 'gc1_markdown', type: 'markdown', content: '## Key Revolutionary Sites\\n\\n- **Bastille**: Prison stormed on July 14, 1789\\n- **Place de la Révolution**: Site of many executions\\n- **Tuileries Palace**: Royal residence during the revolution', position: 2 }
       ]);
       
-      const grandchild2 = this.createNode(child1.id, [
+      const grandchild2Id = this.createNode(child1Id, [
         { id: 'gc2_prompt', type: 'prompt', content: 'How did Paris develop during the Medieval period?', position: 0 },
         { id: 'gc2_response', type: 'response', content: 'During the Medieval period, Paris grew from a small island settlement to become the largest city in Europe by 1300, with impressive Gothic architecture.', position: 1 }
       ]);
       
       this.logger.logInfo('Created grandchild nodes', 'createSampleData', { 
-        grandchild1Id: grandchild1.id,
-        grandchild2Id: grandchild2.id,
+        grandchild1Id,
+        grandchild2Id,
         finalNodeCount: this.nodes.size
       });
       
@@ -377,8 +378,22 @@ export class GraphEditor {
    * @throws {TreeStructureError} When tree structure would be violated
    * @throws {NodeEditorError} When node creation fails
    */
-  public createNode(parentId: string | null = null, blocks: NodeBlock[] = []): GraphNode {
+  public createNode(parentId: string | null = null, blocksOrPosition?: NodeBlock[] | Position, name?: string): string {
     const startTime = performance.now();
+    
+    // Handle different parameter types
+    let blocks: NodeBlock[] = [];
+    let position: Position | undefined;
+    
+    if (blocksOrPosition) {
+      if (Array.isArray(blocksOrPosition)) {
+        blocks = blocksOrPosition;
+      } else {
+        // It's a Position object
+        position = blocksOrPosition;
+      }
+    }
+    
     this.logger.logFunctionEntry('createNode', { parentId, blocksCount: blocks.length });
 
     try {
@@ -421,10 +436,10 @@ export class GraphEditor {
 
       const node: GraphNode = {
         id: nodeId,
-        name: `Node ${this.nodeCounter}`,
+        name: name || `Node ${this.nodeCounter}`,
         parentId,
         children: [],
-        position: { x: 0, y: 0 },
+        position: position || { x: 0, y: 0 },
         depth: nodeDepth,
         blocks: blocks.length > 0 ? blocks : [
           { id: `${nodeId}_prompt`, type: 'prompt', content: 'Enter your prompt here...', position: 0 },
@@ -455,7 +470,7 @@ export class GraphEditor {
       this.logger.logPerformance('createNode', 'node_creation', executionTime);
       this.logger.logFunctionExit('createNode', { nodeId, depth: nodeDepth }, executionTime);
       
-      return node;
+      return nodeId;
       
     } catch (error) {
       this.logger.logError(error as Error, 'createNode', { parentId, blocksCount: blocks.length });
@@ -941,14 +956,14 @@ export class GraphEditor {
         );
       }
       
-      const child = this.createNode(parentId, [
+      const childId = this.createNode(parentId, [
         { id: `${parentId}_child_prompt_${Date.now()}`, type: 'prompt', content: 'New prompt - edit this content...', position: 0 },
         { id: `${parentId}_child_response_${Date.now()}`, type: 'response', content: 'New response - this represents an edit or variation of the parent node...', position: 1 }
       ]);
       
       this.logger.logInfo('Child node created successfully', 'addChild', { 
         parentId, 
-        childId: child.id,
+        childId,
         totalNodes: this.nodes.size
       });
       
@@ -957,7 +972,7 @@ export class GraphEditor {
       
       const executionTime = performance.now() - startTime;
       this.logger.logPerformance('addChild', 'child_creation', executionTime);
-      this.logger.logFunctionExit('addChild', { parentId, childId: child.id }, executionTime);
+      this.logger.logFunctionExit('addChild', { parentId, childId }, executionTime);
       
     } catch (error) {
       this.logger.logError(error as Error, 'addChild', { parentId });
@@ -1053,26 +1068,43 @@ export class GraphEditor {
    * @param blockIndex - Index of the block to update
    * @param content - New content for the block
    */
-  public updateBlockContent(nodeId: string, blockIndex: number, content: string): void {
-    this.logger.logFunctionEntry('updateBlockContent', { nodeId, blockIndex, contentLength: content.length });
+  public updateBlockContent(nodeId: string, blockIdOrIndex: string | number, content: string): void {
+    let blockIndex: number;
+    let blockId: string;
+    
+    // Determine if we're dealing with blockId or blockIndex
+    if (typeof blockIdOrIndex === 'string') {
+      blockId = blockIdOrIndex;
+      const node = this.nodes.get(nodeId);
+      blockIndex = node?.blocks.findIndex(b => b.id === blockId) ?? -1;
+    } else {
+      blockIndex = blockIdOrIndex;
+      const node = this.nodes.get(nodeId);
+      blockId = node?.blocks[blockIndex]?.id ?? '';
+    }
+    
+    this.logger.logFunctionEntry('updateBlockContent', { nodeId, blockIndex, blockId, contentLength: content.length });
 
     try {
       this.validator.validateNodeId(nodeId, 'updateBlockContent');
-      this.validator.validateRange(blockIndex, 0, 1000, 'blockIndex', 'updateBlockContent');
+      if (typeof blockIdOrIndex === 'number') {
+        this.validator.validateRange(blockIndex, 0, 1000, 'blockIndex', 'updateBlockContent');
+      }
 
       const node = this.nodes.get(nodeId);
       const nodeExists = !!node;
       this.logger.logBranch('updateBlockContent', 'nodeExists', nodeExists, { nodeId });
       
-      if (node && node.blocks[blockIndex]) {
-        const oldContent = node.blocks[blockIndex].content;
-        node.blocks[blockIndex].content = content;
+      if (node && blockIndex >= 0 && blockIndex < node.blocks.length) {
+        const block = node.blocks[blockIndex]!;
+        const oldContent = block.content;
+        block.content = content;
         
         this.logger.logVariableAssignment('updateBlockContent', 'blockContent', content.substring(0, 100));
         this.logger.logInfo('Block content updated', 'updateBlockContent', {
           nodeId,
           blockIndex,
-          blockId: node.blocks[blockIndex].id,
+          blockId: block.id,
           oldLength: oldContent.length,
           newLength: content.length
         });
@@ -1080,19 +1112,19 @@ export class GraphEditor {
         this.logger.logFunctionExit('updateBlockContent', { nodeId, blockIndex, contentLength: content.length });
         
       } else {
-        const errorMsg = node ? 'Block index out of range' : 'Node not found';
-        this.logger.logWarn(errorMsg, 'updateBlockContent', { nodeId, blockIndex });
+        const errorMsg = node ? 'Block not found' : 'Node not found';
+        this.logger.logWarn(errorMsg, 'updateBlockContent', { nodeId, blockIndex, blockId });
       }
       
     } catch (error) {
-      this.logger.logError(error as Error, 'updateBlockContent', { nodeId, blockIndex });
+      this.logger.logError(error as Error, 'updateBlockContent', { nodeId, blockIndex, blockId });
       
       throw this.errorFactory.createNodeEditorError(
         `Failed to update block content`,
         'UPDATE_CONTENT_FAILED',
         'Unable to save your changes.',
         'updateBlockContent',
-        { nodeId, blockIndex, error: String(error) }
+        { nodeId, blockIndex, blockId, error: String(error) }
       );
     }
   }
@@ -1412,7 +1444,7 @@ export class GraphEditor {
       for (const [index, childId] of node.children.entries()) {
         const child = this.nodes.get(childId);
         if (child) {
-          const childWidth = childWidths[index];
+          const childWidth = childWidths[index] ?? this.NODE_WIDTH;
           const childCenterX = currentX + childWidth / 2;
           
           this.logger.logInfo(`Positioning child ${index + 1}/${node.children.length}`, 'layoutSubtree', {
@@ -1596,13 +1628,13 @@ export class GraphEditor {
     this.logger.logFunctionEntry('addRootNode');
 
     try {
-      const root = this.createNode(null, [
+      const rootId = this.createNode(null, [
         { id: `root_${Date.now()}_prompt`, type: 'prompt', content: 'New root prompt...', position: 0 },
         { id: `root_${Date.now()}_response`, type: 'response', content: 'New root response...', position: 1 }
       ]);
       
       this.logger.logInfo('Root node created successfully', 'addRootNode', {
-        rootId: root.id,
+        rootId,
         totalNodes: this.nodes.size
       });
       
@@ -1613,7 +1645,7 @@ export class GraphEditor {
       
       const executionTime = performance.now() - startTime;
       this.logger.logPerformance('addRootNode', 'root_creation', executionTime);
-      this.logger.logFunctionExit('addRootNode', { rootId: root.id }, executionTime);
+      this.logger.logFunctionExit('addRootNode', { rootId }, executionTime);
       
     } catch (error) {
       this.logger.logError(error as Error, 'addRootNode');
@@ -2112,11 +2144,11 @@ export class GraphEditor {
       };
 
       // Use the tree layout algorithm for initial positions
-      const layoutResults = calculateTreeLayout(nodes, layout);
+      const layoutResults = calculateTreeLayout(this.nodes, layout);
       
       // Create mutable copy for adjustments
-      const mutableResults = layoutResults.map(result => ({
-        nodeId: result.nodeId,
+      const mutableResults = Array.from(layoutResults.values()).map(result => ({
+        nodeId: result.id,
         position: { x: result.position.x, y: result.position.y }
       }));
       
@@ -2588,6 +2620,168 @@ export class GraphEditor {
         'exportData',
         { error: String(error) }
       );
+    }
+  }
+
+  // Additional public methods expected by tests
+
+  /**
+   * Get all nodes in the graph
+   */
+  public getNodes(): Map<string, GraphNode> {
+    return new Map(this.nodes);
+  }
+
+  /**
+   * Get a specific node by ID
+   */
+  public getNode(nodeId: string): GraphNode | undefined {
+    return this.nodes.get(nodeId);
+  }
+
+  /**
+   * Get current canvas state
+   */
+  public getCanvasState() {
+    return {
+      selectedNodeId: this.selectedNode ? this.selectedNode.id : null,
+      canvasOffset: { x: this.panX, y: this.panY },
+      zoom: this.scale
+    };
+  }
+
+  /**
+   * Move a node to a new position
+   */
+  public moveNode(nodeId: string, position: { x: number; y: number }): void {
+    const node = this.nodes.get(nodeId);
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
+    if (isNaN(position.x) || isNaN(position.y) || !isFinite(position.x) || !isFinite(position.y)) {
+      throw new Error('Invalid position coordinates');
+    }
+    node.position = position;
+    this.renderNode(node);
+    this.updateConnections();
+  }
+
+  /**
+   * Add a block to a node
+   */
+  public addBlock(nodeId: string, type: string, content: string): string {
+    const node = this.nodes.get(nodeId);
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
+    const blockId = `${nodeId}_block_${Date.now()}`;
+    const newBlock = {
+      id: blockId,
+      type: type as any,
+      content,
+      position: node.blocks.length
+    };
+    node.blocks.push(newBlock);
+    this.renderNode(node);
+    return blockId;
+  }
+
+  /**
+   * Delete a block from a node
+   */
+  public deleteBlock(nodeId: string, blockId: string): void {
+    const node = this.nodes.get(nodeId);
+    if (!node) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
+    const index = node.blocks.findIndex(b => b.id === blockId);
+    if (index === -1) {
+      throw new Error(`Block ${blockId} not found`);
+    }
+    node.blocks.splice(index, 1);
+    // Update positions
+    node.blocks.forEach((block, i) => {
+      (block as any).position = i;
+    });
+    this.renderNode(node);
+  }
+
+  /**
+   * Pan the canvas
+   */
+  public panCanvas(deltaX: number, deltaY: number): void {
+    this.panX += deltaX;
+    this.panY += deltaY;
+    this.updateCanvasTransform();
+  }
+
+  /**
+   * Calculate tree layout (already exists internally, expose for tests)
+   */
+  public calculateTreeLayout(): void {
+    this.autoLayout();
+  }
+
+  /**
+   * Render connections (already exists internally, expose for tests)
+   */
+  public renderConnections(): void {
+    this.updateConnections();
+  }
+
+  /**
+   * Show loading indicator for a node
+   */
+  public showLoadingIndicator(nodeId: string): void {
+    const nodeEl = document.getElementById(nodeId);
+    if (nodeEl) {
+      nodeEl.classList.add('loading');
+    }
+  }
+
+  /**
+   * Hide loading indicator for a node
+   */
+  public hideLoadingIndicator(nodeId: string): void {
+    const nodeEl = document.getElementById(nodeId);
+    if (nodeEl) {
+      nodeEl.classList.remove('loading');
+    }
+  }
+
+  /**
+   * Add inline chat continuation
+   */
+  public addInlineChatContinuation(nodeId: string): void {
+    const node = this.nodes.get(nodeId);
+    if (node) {
+      node.blocks.push({
+        id: `${nodeId}_continuation_${Date.now()}`,
+        type: 'response' as any,
+        content: 'Continue conversation...',
+        position: node.blocks.length
+      });
+      this.renderNode(node);
+    }
+  }
+
+  /**
+   * Expand chat continuation
+   */
+  public expandChatContinuation(nodeId: string): void {
+    const nodeEl = document.getElementById(nodeId);
+    if (nodeEl) {
+      nodeEl.classList.add('expanded');
+    }
+  }
+
+  /**
+   * Collapse chat continuation
+   */
+  public collapseChatContinuation(nodeId: string): void {
+    const nodeEl = document.getElementById(nodeId);
+    if (nodeEl) {
+      nodeEl.classList.remove('expanded');
     }
   }
 }

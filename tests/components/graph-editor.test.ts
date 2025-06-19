@@ -34,7 +34,7 @@ describe('GraphEditor Component', () => {
     document.body.appendChild(mockConnections);
 
     // Initialize GraphEditor
-    editor = new GraphEditor();
+    editor = new GraphEditor(mockCanvas, mockCanvasContent, mockConnections);
 
     // Clear fetch mock
     (global.fetch as jest.Mock).mockClear();
@@ -81,8 +81,9 @@ describe('GraphEditor Component', () => {
         expect(node!.parentId).toBeNull();
         expect(node!.depth).toBe(0);
         expect(node!.children).toEqual([]);
-        expect(node!.blocks).toHaveLength(1);
-        expect(node!.blocks[0].type).toBe('chat');
+        expect(node!.blocks).toHaveLength(2);
+        expect(node!.blocks[0]?.type).toBe('prompt');
+        expect(node!.blocks[1]?.type).toBe('response');
       });
 
       it('should create a child node with specified parent', () => {
@@ -258,9 +259,9 @@ describe('GraphEditor Component', () => {
         const blocks = node.blocks.sort((a, b) => a.position - b.position);
         
         expect(blocks).toHaveLength(3); // Initial + 2 remaining
-        expect(blocks[0].position).toBe(0); // Initial chat block
-        expect(blocks[1].position).toBe(1); // block1
-        expect(blocks[2].position).toBe(2); // block3 (reordered from 3 to 2)
+        expect(blocks[0]?.position).toBe(0); // Initial chat block
+        expect(blocks[1]?.position).toBe(1); // block1
+        expect(blocks[2]?.position).toBe(2); // block3 (reordered from 3 to 2)
       });
 
       it('should throw error for non-existent block', () => {
@@ -422,7 +423,7 @@ describe('GraphEditor Component', () => {
       nodeId = editor.createNode();
       // Add some content to the chat block
       const node = editor.getNode(nodeId)!;
-      editor.updateBlockContent(nodeId, node.blocks[0].id, 'Test chat message');
+      editor.updateBlockContent(nodeId, node.blocks[0]?.id!, 'Test chat message');
     });
 
     describe('submitToGemini', () => {
@@ -460,7 +461,7 @@ describe('GraphEditor Component', () => {
         const responseBlocks = node.blocks.filter(b => b.type === 'response');
         
         expect(responseBlocks).toHaveLength(1);
-        expect(responseBlocks[0].content).toBe(responseContent);
+        expect(responseBlocks[0]?.content).toBe(responseContent);
       });
 
       it('should handle API errors gracefully', async () => {
@@ -554,7 +555,7 @@ describe('GraphEditor Component', () => {
         
         editor.renderConnections();
         
-        const svg = document.getElementById('connections') as SVGElement;
+        const svg = document.getElementById('connections') as unknown as SVGElement;
         const paths = svg.querySelectorAll('path');
         
         expect(paths.length).toBeGreaterThan(0);

@@ -110,7 +110,7 @@ export class ErrorFactory {
     createContext(functionName, parameters) {
         return {
             functionName,
-            parameters,
+            parameters: parameters !== null && parameters !== void 0 ? parameters : undefined,
             timestamp: new Date().toISOString(),
             correlationId: this.correlationId
         };

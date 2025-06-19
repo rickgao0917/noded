@@ -135,3 +135,5 @@ export const createMockDOMElement = (tagName: string = 'div', id?: string) => {
 
 // Export for use in tests
 export { originalConsole };
+
+export const mockPerformance = global.performance;
