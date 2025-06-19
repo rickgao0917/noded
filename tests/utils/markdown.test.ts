@@ -114,7 +114,15 @@ describe('MarkdownProcessor Utility', () => {
     });
 
     it('should apply syntax highlighting to code blocks', () => {
-      const highlightFn = (window.marked!.setOptions as jest.Mock).mock.calls[0][0].highlight;
+      // Ensure hljs mock is properly set up
+      window.hljs!.highlight = jest.fn((code: string, options: any) => ({ value: `<span class="hljs">${code}</span>` }));
+      
+      // First trigger setOptions by calling renderMarkdown
+      processor.renderMarkdown('```js\nconst x = 1;\n```');
+      
+      // Get the most recent call (last index) instead of always [0]
+      const setOptionsCalls = (window.marked!.setOptions as jest.Mock).mock.calls;
+      const highlightFn = setOptionsCalls[setOptionsCalls.length - 1][0].highlight;
       const result = highlightFn('const x = 1;', 'javascript');
       
       expect(result).toBe('<span class="hljs">const x = 1;</span>');
