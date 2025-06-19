@@ -10,12 +10,12 @@
  * 
  * @public
  */
-export type NodeBlockType = 'prompt' | 'response' | 'markdown';
+export type NodeBlockType = 'chat' | 'response' | 'markdown';
 
 /**
  * Individual content block within a graph node
  * 
- * Each block represents a distinct piece of content (prompt, response, or markdown)
+ * Each block represents a distinct piece of content (chat, response, or markdown)
  * that can be edited independently.
  * 
  * @public

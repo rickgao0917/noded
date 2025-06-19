@@ -18,7 +18,7 @@ import { ValidationError, ErrorFactory } from '../types/errors.js';
  */
 export function isNodeBlockType(value: unknown): value is NodeBlockType {
   return typeof value === 'string' && 
-         ['prompt', 'response', 'markdown'].includes(value);
+         ['chat', 'response', 'markdown'].includes(value);
 }
 
 /**

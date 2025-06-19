@@ -35,9 +35,9 @@ interface LayoutResult {
  * - Child nodes are evenly distributed under their parent
  * - No overlapping occurs between node subtrees
  * 
- * @param nodes - Array of all nodes to be positioned
+ * @param nodes - Map of all nodes to be positioned
  * @param layout - Layout configuration specifying node dimensions and spacing
- * @returns Array of calculated positions for each node
+ * @returns Map of nodes with updated positions
  * 
  * @example
  * ```typescript
@@ -52,24 +52,26 @@ interface LayoutResult {
  * @public
  */
 export function calculateTreeLayout(
-  nodes: readonly GraphNode[],
+  nodes: Map<string, GraphNode>,
   layout: TreeLayout
-): readonly LayoutResult[] {
-  const nodeMap = new Map<string, GraphNode>();
+): Map<string, GraphNode> {
+  if (nodes.size === 0) {
+    return new Map();
+  }
+
+  const result = new Map(nodes);
+  const nodeArray = Array.from(nodes.values());
   const childrenMap = new Map<string, GraphNode[]>();
   
-  for (const node of nodes) {
-    nodeMap.set(node.id, node);
-    
+  // Build children map
+  for (const node of nodeArray) {
     if (node.parentId) {
       const siblings = childrenMap.get(node.parentId) || [];
       childrenMap.set(node.parentId, [...siblings, node]);
     }
   }
   
-  const rootNodes = nodes.filter(node => node.parentId === null);
-  const results: LayoutResult[] = [];
-  
+  const rootNodes = nodeArray.filter(node => node.parentId === null);
   let rootOffset = 0;
   
   for (const rootNode of rootNodes) {
@@ -82,13 +84,13 @@ export function calculateTreeLayout(
       layout,
       rootX,
       0,
-      results
+      result
     );
     
     rootOffset += subtreeWidth + layout.horizontalSpacing;
   }
   
-  return results;
+  return result;
 }
 
 /**
@@ -129,7 +131,7 @@ function calculateSubtreeWidth(
  * @param layout - Layout configuration
  * @param centerX - Horizontal center position for the root node
  * @param depth - Current depth level (0 = root)
- * @param results - Array to accumulate positioning results
+ * @param result - Map to update with new positions
  * 
  * @internal
  */
@@ -139,14 +141,16 @@ function layoutSubtree(
   layout: TreeLayout,
   centerX: number,
   depth: number,
-  results: LayoutResult[]
+  result: Map<string, GraphNode>
 ): void {
-  const y = depth * (layout.nodeHeight + layout.verticalSpacing);
+  const y = depth * layout.verticalSpacing;
   
-  results.push({
-    nodeId: node.id,
-    position: { x: centerX - layout.nodeWidth / 2, y }
-  });
+  // Update the node's position
+  const updatedNode: GraphNode = {
+    ...node,
+    position: { x: centerX, y }
+  };
+  result.set(node.id, updatedNode);
   
   const children = childrenMap.get(node.id) || [];
   
@@ -167,17 +171,20 @@ function layoutSubtree(
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
     const childWidth = childWidths[i];
-    const childCenterX = currentX + childWidth / 2;
     
-    layoutSubtree(
-      child,
-      childrenMap,
-      layout,
-      childCenterX,
-      depth + 1,
-      results
-    );
-    
-    currentX += childWidth + layout.horizontalSpacing;
+    if (child && childWidth !== undefined) {
+      const childCenterX = currentX + childWidth / 2;
+      
+      layoutSubtree(
+        child,
+        childrenMap,
+        layout,
+        childCenterX,
+        depth + 1,
+        result
+      );
+      
+      currentX += childWidth + layout.horizontalSpacing;
+    }
   }
 }
