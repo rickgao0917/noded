@@ -382,11 +382,15 @@ describe('QuillManager Utility', () => {
 
     it('should remove editor container from DOM', () => {
       const editorContainer = mockQuillInstance.container;
-      editorContainer.parentNode = container;
+      // Properly append the editor container to establish parent-child relationship
       container.appendChild(editorContainer);
+      
+      // Verify it's in the DOM before destruction
+      expect(container.contains(editorContainer)).toBe(true);
       
       manager.destroyEditor('block-1');
       
+      // Should be removed from DOM after destruction
       expect(container.contains(editorContainer)).toBe(false);
     });
 
@@ -495,6 +499,9 @@ describe('QuillManager Utility', () => {
     });
 
     it('should do nothing for non-existent editor', () => {
+      // Clear any previous mock calls to ensure clean state
+      jest.clearAllMocks();
+      
       manager.setEnabled('non-existent', true);
       
       expect(mockQuillInstance.enable).not.toHaveBeenCalled();

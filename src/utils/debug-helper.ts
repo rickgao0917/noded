@@ -62,11 +62,11 @@ export class DebugHelper {
    */
   public hideFunction(...functionNames: string[]): void {
     const currentConfig = this.getCurrentConfig();
-    const exclude = [...(currentConfig?.functions?.exclude || []), ...functionNames];
+    const exclude = [...(currentConfig.functions?.exclude || []), ...functionNames];
     
     this.updateAllLoggers({
       functions: {
-        include: currentConfig?.functions?.include || ['.*'],
+        include: currentConfig.functions?.include || ['.*'],
         exclude
       }
     });
@@ -210,6 +210,14 @@ export class DebugHelper {
   }
 
   /**
+   * Reset configuration to defaults
+   */
+  public reset(): void {
+    this.updateAllLoggers(this.getDefaultConfig());
+    console.log('🔄 Configuration reset to defaults');
+  }
+
+  /**
    * Show available commands
    */
   public help(): void {
@@ -247,11 +255,24 @@ Info:
     `);
   }
 
-  private getCurrentConfig(): DebugConfig | null {
+  private getCurrentConfig(): DebugConfig {
     if (typeof window !== 'undefined') {
-      return window.NODE_EDITOR_CONFIG?.DEBUG || null;
+      // Ensure NODE_EDITOR_CONFIG exists
+      if (!window.NODE_EDITOR_CONFIG) {
+        window.NODE_EDITOR_CONFIG = {
+          GEMINI_API_KEY: ''
+        };
+      }
+      
+      // Now we know NODE_EDITOR_CONFIG exists, ensure DEBUG config exists with defaults
+      const config = window.NODE_EDITOR_CONFIG;
+      if (!config.DEBUG) {
+        config.DEBUG = this.getDefaultConfig();
+      }
+      
+      return config.DEBUG;
     }
-    return null;
+    return this.getDefaultConfig();
   }
 
   private updateAllLoggers(config: PartialDebugConfig): void {
@@ -259,11 +280,97 @@ Info:
       logger.updateDebugConfig(config);
     });
     
-    // Also update global config if it exists
-    if (typeof window !== 'undefined' && window.NODE_EDITOR_CONFIG?.DEBUG) {
-      const globalConfig = window.NODE_EDITOR_CONFIG.DEBUG;
-      Object.assign(globalConfig, config);
+    // Always update global config (create if needed)
+    if (typeof window !== 'undefined') {
+      const globalConfig = this.getCurrentConfig(); // This ensures it exists
+      this.deepMergeConfig(globalConfig, config);
     }
+  }
+
+  private deepMergeConfig(target: DebugConfig, source: PartialDebugConfig): void {
+    // Handle enabled
+    if (source.enabled !== undefined) {
+      target.enabled = source.enabled;
+    }
+    
+    // Handle levels
+    if (source.levels) {
+      Object.assign(target.levels, source.levels);
+    }
+    
+    // Handle types
+    if (source.types) {
+      Object.assign(target.types, source.types);
+    }
+    
+    // Handle services
+    if (source.services) {
+      Object.assign(target.services, source.services);
+    }
+    
+    // Handle functions with proper array merging
+    if (source.functions) {
+      if (source.functions.include !== undefined) {
+        target.functions.include = source.functions.include;
+      }
+      if (source.functions.exclude !== undefined) {
+        target.functions.exclude = source.functions.exclude;
+      }
+    }
+    
+    // Handle performance
+    if (source.performance) {
+      Object.assign(target.performance, source.performance);
+    }
+    
+    // Handle format
+    if (source.format) {
+      Object.assign(target.format, source.format);
+    }
+  }
+
+  private getDefaultConfig(): DebugConfig {
+    return {
+      enabled: true,
+      levels: {
+        TRACE: false,
+        DEBUG: false,
+        INFO: true,
+        WARN: true,
+        ERROR: true,
+        FATAL: true
+      },
+      types: {
+        function_entry: false,
+        function_exit: false,
+        branch_execution: false,
+        loop_execution: false,
+        variable_assignment: false,
+        user_interaction: true,
+        performance_metric: true,
+        business_logic: true,
+        error: true,
+        warning: true,
+        trace: false,
+        debug: false
+      },
+      services: {},
+      functions: {
+        include: ['.*'],
+        exclude: []
+      },
+      performance: {
+        warnThreshold: 10,
+        errorThreshold: 100
+      },
+      format: {
+        pretty: true,
+        includeTimestamp: true,
+        includeMetadata: true,
+        includeStackTrace: false,
+        maxDepth: 3
+      }
+    };
   }
 }
 

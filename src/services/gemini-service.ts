@@ -11,21 +11,27 @@ export class GeminiService {
   private apiKey: string;
   private apiUrl: string = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent';
 
-  constructor() {
-    this.logger = new Logger('GeminiService');
-    this.errorFactory = new ErrorFactory('gemini-service');
+  constructor(apiKey?: string, logger?: Logger, errorFactory?: ErrorFactory) {
+    this.logger = logger || new Logger('GeminiService');
+    this.errorFactory = errorFactory || new ErrorFactory('gemini-service');
     
-    // Try to get API key from environment variable (works in Node.js/build time)
-    const envApiKey = typeof process !== 'undefined' && process.env?.GEMINI_API_KEY;
+    // Use injected API key first, then try environment/config
+    if (apiKey !== undefined) {
+      this.apiKey = apiKey;
+    } else {
+      // Try to get API key from environment variable (works in Node.js/build time)
+      const envApiKey = typeof process !== 'undefined' && process.env?.GEMINI_API_KEY;
+      
+      // In browser environment, check for configuration object with safe access
+      const configApiKey = typeof window !== 'undefined' && 
+                          window?.NODE_EDITOR_CONFIG?.GEMINI_API_KEY;
+      
+      // Use environment variable first, then config object
+      this.apiKey = envApiKey || configApiKey || '';
+    }
     
-    // In browser environment, check for configuration object
-    const configApiKey = typeof window !== 'undefined' && 
-                        (window as any).NODE_EDITOR_CONFIG?.GEMINI_API_KEY;
-    
-    // Use environment variable first, then config object
-    this.apiKey = envApiKey || configApiKey || '';
-    
-    if (!this.apiKey) {
+    // Only log warning if no API key found and not injected
+    if (!this.apiKey && apiKey === undefined) {
       this.logger.logWarn(
         'No API key found. Please create config.js from config.example.js and add your Gemini API key.',
         'constructor'
@@ -60,7 +66,7 @@ export class GeminiService {
         );
       }
 
-      // Check API key
+      // Check API key at call time
       if (!this.apiKey) {
         throw this.errorFactory.createNodeEditorError(
           'Gemini API key not configured',
@@ -118,7 +124,7 @@ export class GeminiService {
 
         throw this.errorFactory.createNodeEditorError(
           `Gemini API request failed: ${response.statusText}`,
-          'API_REQUEST_FAILED',
+          'GEMINI_API_ERROR',
           'Failed to get response from AI. Please try again.',
           'sendMessage',
           { status: response.status, errorText }
@@ -133,7 +139,7 @@ export class GeminiService {
       if (!reader) {
         throw this.errorFactory.createNodeEditorError(
           'Response body is not readable',
-          'RESPONSE_NOT_READABLE',
+          'GEMINI_STREAM_ERROR',
           'Failed to read AI response.',
           'sendMessage'
         );
@@ -141,12 +147,13 @@ export class GeminiService {
 
       let buffer = '';
       
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          break;
-        }
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            break;
+          }
 
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
@@ -244,6 +251,15 @@ export class GeminiService {
           buffer = '';
         }
       }
+      } catch (streamError) {
+        throw this.errorFactory.createNodeEditorError(
+          'Failed to read streaming response',
+          'GEMINI_STREAM_ERROR',
+          'Error reading AI response stream.',
+          'sendMessage',
+          { error: String(streamError) }
+        );
+      }
 
       const executionTime = performance.now() - startTime;
       this.logger.logPerformance('sendMessage', 'api_request', executionTime);
@@ -268,13 +284,17 @@ export class GeminiService {
     } catch (error) {
       this.logger.logError(error as Error, 'sendMessage');
       
-      if (error instanceof Error && error.name.includes('Error')) {
+      // If it's already one of our custom errors, re-throw it
+      if (error instanceof Error && (error.message.includes('API_KEY_MISSING') || 
+                                      error.message.includes('GEMINI_API_ERROR') ||
+                                      error.message.includes('GEMINI_STREAM_ERROR'))) {
         throw error;
       }
 
+      // For other errors (network, etc.), wrap them
       throw this.errorFactory.createNodeEditorError(
         'Failed to communicate with Gemini API',
-        'API_COMMUNICATION_FAILED',
+        'GEMINI_CONNECTION_ERROR',
         'Unable to get AI response. Please check your connection and try again.',
         'sendMessage',
         { error: String(error) }

@@ -17,7 +17,8 @@ module.exports = {
   },
   
   // Coverage configuration (ts_readme.xml requirement: 80% minimum)
-  collectCoverage: true,
+  // Disabled by default, enable with --coverage flag or RUN_COVERAGE=true
+  collectCoverage: process.env.RUN_COVERAGE === 'true' || process.argv.includes('--coverage'),
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
