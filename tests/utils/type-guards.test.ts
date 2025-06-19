@@ -29,9 +29,13 @@ describe('Type Guards Utility Functions', () => {
       expect(isNodeBlockType('markdown')).toBe(true);
     });
 
+    it('should return true for valid prompt block type', () => {
+      expect(isNodeBlockType('prompt')).toBe(true);
+    });
+
     it('should return false for invalid string values', () => {
       expect(isNodeBlockType('invalid')).toBe(false);
-      expect(isNodeBlockType('prompt')).toBe(false); // Old type should be false
+      expect(isNodeBlockType('unknown')).toBe(false);
       expect(isNodeBlockType('')).toBe(false);
       expect(isNodeBlockType(' ')).toBe(false);
     });

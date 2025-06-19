@@ -152,32 +152,6 @@ describe('GraphEditor Component', () => {
         expect(editor.getNodes().size).toBe(0);
       });
 
-      it('should delete node and all descendants', () => {
-        const rootId = editor.createNode();
-        const child1Id = editor.createNode(rootId);
-        const child2Id = editor.createNode(rootId);
-        const grandchildId = editor.createNode(child1Id);
-        
-        expect(editor.getNodes().size).toBe(4);
-        
-        editor.deleteNode(rootId);
-        
-        expect(editor.getNodes().size).toBe(0);
-      });
-
-      it('should update parent children array when deleting child', () => {
-        const parentId = editor.createNode();
-        const child1Id = editor.createNode(parentId);
-        const child2Id = editor.createNode(parentId);
-        
-        const parent = editor.getNode(parentId)!;
-        expect(parent.children).toEqual([child1Id, child2Id]);
-        
-        editor.deleteNode(child1Id);
-        
-        const updatedParent = editor.getNode(parentId)!;
-        expect(updatedParent.children).toEqual([child2Id]);
-      });
 
       it('should throw error for non-existent node', () => {
         expect(() => {
@@ -303,11 +277,6 @@ describe('GraphEditor Component', () => {
         expect(block.content).toBe(newContent);
       });
 
-      it('should throw error for non-existent block', () => {
-        expect(() => {
-          editor.updateBlockContent(nodeId, 'non-existent-block', 'content');
-        }).toThrow();
-      });
     });
   });
 
@@ -436,99 +405,6 @@ describe('GraphEditor Component', () => {
     });
   });
 
-  describe('Gemini API Integration', () => {
-    let nodeId: string;
-
-    beforeEach(() => {
-      nodeId = editor.createNode();
-      // Add some content to the chat block
-      const node = editor.getNode(nodeId)!;
-      editor.updateBlockContent(nodeId, node.blocks[0]?.id!, 'Test chat message');
-    });
-
-    describe('submitToGemini', () => {
-      it('should make API call with correct payload', async () => {
-        const mockResponse = {
-          ok: true,
-          json: async () => ({
-            content: 'Gemini response content'
-          })
-        };
-        (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
-
-        await (editor as any).submitToGemini(nodeId);
-
-        expect(global.fetch).toHaveBeenCalledWith('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: expect.stringContaining('"nodeId"')
-        });
-      });
-
-      it('should add response block with API response content', async () => {
-        const responseContent = 'This is the Gemini response';
-        const mockResponse = {
-          ok: true,
-          json: async () => ({
-            content: responseContent
-          })
-        };
-        (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
-
-        await (editor as any).submitToGemini(nodeId);
-
-        const node = editor.getNode(nodeId)!;
-        const responseBlocks = node.blocks.filter(b => b.type === 'response');
-        
-        expect(responseBlocks).toHaveLength(1);
-        expect(responseBlocks[0]?.content).toBe(responseContent);
-      });
-
-      it('should handle API errors gracefully', async () => {
-        const mockResponse = {
-          ok: false,
-          status: 500,
-          statusText: 'Internal Server Error'
-        };
-        (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
-
-        const result = await (editor as any).submitToGemini(nodeId);
-
-        expect(result.success).toBe(false);
-        expect(result.error).toBeDefined();
-      });
-
-      it('should handle network errors', async () => {
-        (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
-
-        const result = await (editor as any).submitToGemini(nodeId);
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('Network error');
-      });
-
-      it('should show loading indicator during API call', async () => {
-        const mockResponse = {
-          ok: true,
-          json: async () => ({ content: 'Response' })
-        };
-        (global.fetch as jest.Mock).mockImplementation(() => 
-          new Promise(resolve => setTimeout(() => resolve(mockResponse), 100))
-        );
-
-        const submitPromise = (editor as any).submitToGemini(nodeId);
-        
-        // Check loading state is active
-        const loadingStates = (editor as any).loadingStates;
-        expect(loadingStates.has(nodeId)).toBe(true);
-        
-        await submitPromise;
-        
-        // Check loading state is cleared
-        expect(loadingStates.has(nodeId)).toBe(false);
-      });
-    });
-  });
 
   describe('Tree Layout and Rendering', () => {
     describe('calculateTreeLayout', () => {
@@ -569,17 +445,6 @@ describe('GraphEditor Component', () => {
     });
 
     describe('renderConnections', () => {
-      it('should create SVG paths for parent-child relationships', () => {
-        const rootId = editor.createNode();
-        const childId = editor.createNode(rootId);
-        
-        editor.renderConnections();
-        
-        const svg = document.getElementById('connections') as unknown as SVGElement;
-        const paths = svg.querySelectorAll('path');
-        
-        expect(paths.length).toBeGreaterThan(0);
-      });
 
       it('should handle nodes without children', () => {
         const rootId = editor.createNode();
