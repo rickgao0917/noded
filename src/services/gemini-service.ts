@@ -14,8 +14,8 @@ export class GeminiService {
   constructor() {
     this.logger = new Logger('GeminiService');
     this.errorFactory = new ErrorFactory('gemini-service');
-    // Temporary API key - replace with your actual key
-    this.apiKey = 'AIzaSyBjgivUoXPF8QSz18fcKYtocSsL2Xjt2dI'; // Paste your API key here
+    // Get API key from environment variable
+    this.apiKey = process.env.GEMINI_API_KEY || '';
   }
 
   /**
@@ -46,11 +46,11 @@ export class GeminiService {
       }
 
       // Check API key
-      if (!this.apiKey || this.apiKey === 'YOUR_GEMINI_API_KEY_HERE') {
+      if (!this.apiKey) {
         throw this.errorFactory.createNodeEditorError(
           'Gemini API key not configured',
           'API_KEY_MISSING',
-          'Please set a valid Gemini API key in the code.',
+          'Please set the GEMINI_API_KEY environment variable.',
           'sendMessage'
         );
       }

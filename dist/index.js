@@ -4,6 +4,15 @@
  * Initializes the graph editor with DOM elements and sets up event delegation.
  * Follows comprehensive logging and error handling standards.
  */
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 import { GraphEditor } from './components/graph-editor.js';
 import { Logger } from './utils/logger.js';
 import { ErrorFactory } from './types/errors.js';
@@ -36,7 +45,7 @@ function initializeEditor() {
             });
             throw errorFactory.createDOMError('Required DOM elements not found', 'ELEMENTS_NOT_FOUND', 'Unable to initialize the editor. Please refresh the page.', 'initializeEditor');
         }
-        const editor = new GraphEditor(canvas, canvasContent, connections);
+        const editor = new GraphEditor(canvas, canvasContent, connections, false);
         logger.logInfo('GraphEditor instance created successfully', 'initializeEditor');
         // Set up global button handlers with comprehensive error handling
         setupGlobalEventHandlers(editor, logger, errorFactory);
@@ -246,8 +255,8 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
                 logger.logError(error, 'setupGlobalEventHandlers.textareaChange');
             }
         });
-        // Set up button handlers for markdown block additions
-        document.addEventListener('click', (e) => {
+        // Set up button handlers for markdown block additions and LLM submission
+        document.addEventListener('click', (e) => __awaiter(this, void 0, void 0, function* () {
             try {
                 const target = e.target;
                 const isButton = target.classList.contains('btn');
@@ -264,11 +273,25 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
                         logger.logInfo('Markdown block added via button', 'setupGlobalEventHandlers', { nodeId });
                     }
                 }
+                else if (isButton && action === 'submitToLLM') {
+                    const nodeId = target.getAttribute('data-node-id');
+                    logger.logUserInteraction('submit_to_llm_click', target.id || 'unnamed', { nodeId });
+                    if (nodeId) {
+                        try {
+                            yield editor.submitToLLM(nodeId);
+                            logger.logInfo('LLM submission triggered successfully', 'setupGlobalEventHandlers', { nodeId });
+                        }
+                        catch (error) {
+                            logger.logError(error, 'setupGlobalEventHandlers.submitToLLM');
+                            handleUserFacingError(error, 'Failed to submit to AI');
+                        }
+                    }
+                }
             }
             catch (error) {
                 logger.logError(error, 'setupGlobalEventHandlers.buttonClick');
             }
-        });
+        }));
         const executionTime = performance.now() - startTime;
         logger.logPerformance('setupGlobalEventHandlers', 'event_handler_setup', executionTime);
         logger.logFunctionExit('setupGlobalEventHandlers', undefined, executionTime);

@@ -16,6 +16,7 @@ import { Logger } from '../utils/logger.js';
 import { Validator } from '../utils/type-guards.js';
 import { ErrorFactory, NodeEditorError, DOMError, TreeStructureError, ValidationError } from '../types/errors.js';
 import { calculateTreeLayout } from '../utils/tree-layout.js';
+import { geminiService } from '../services/gemini-service.js';
 
 /**
  * Main graph editor class managing interactive node tree structure
@@ -446,8 +447,8 @@ export class GraphEditor {
         position: position || { x: 0, y: 0 },
         depth: nodeDepth,
         blocks: blocks.length > 0 ? blocks : [
-          { id: `${nodeId}_prompt`, type: 'prompt', content: 'Enter your prompt here...', position: 0 },
-          { id: `${nodeId}_response`, type: 'response', content: 'Response will appear here...', position: 1 }
+          { id: `${nodeId}_prompt`, type: 'prompt', content: 'Enter your prompt here...', position: 0 }
+          // Response block will be auto-generated after LLM submission
         ]
       };
 
@@ -530,6 +531,7 @@ export class GraphEditor {
             <input class="node-name" type="text" value="${node.name}" data-node-id="${node.id}" title="Click to rename">
           </div>
           <div class="node-actions">
+            <button class="btn submit" data-action="submitToLLM" data-node-id="${node.id}">Submit to Gemini</button>
             <button class="btn add" data-action="addChild" data-node-id="${node.id}">Add Child</button>
             <button class="btn add" data-action="addMarkdown" data-node-id="${node.id}">+ MD</button>
             <button class="btn delete" data-action="deleteNode" data-node-id="${node.id}">Delete</button>
@@ -673,6 +675,7 @@ export class GraphEditor {
               name="${block.id}-content"
               placeholder="Enter ${block.type} content..."
               data-node-id="${nodeId}"
+              data-block-id="${block.id}"
               data-block-index="${blockIndex}"
               autocomplete="off"
             >${block.content}</textarea>
@@ -961,8 +964,8 @@ export class GraphEditor {
       }
       
       const childId = this.createNode(parentId, [
-        { id: `${parentId}_child_prompt_${Date.now()}`, type: 'prompt', content: 'New prompt - edit this content...', position: 0 },
-        { id: `${parentId}_child_response_${Date.now()}`, type: 'response', content: 'New response - this represents an edit or variation of the parent node...', position: 1 }
+        { id: `${parentId}_child_prompt_${Date.now()}`, type: 'prompt', content: 'Enter your prompt here...', position: 0 }
+        // Response will be auto-generated after LLM submission
       ]);
       
       this.logger.logInfo('Child node created successfully', 'addChild', { 
@@ -1062,6 +1065,276 @@ export class GraphEditor {
         'addMarkdownBlock',
         { nodeId, error: String(error) }
       );
+    }
+  }
+
+  /**
+   * Submit prompt to LLM and create response block
+   * 
+   * @param nodeId - ID of node containing the prompt
+   * @throws {ValidationError} When nodeId is invalid
+   * @throws {NodeEditorError} When submission fails
+   */
+  public async submitToLLM(nodeId: string): Promise<void> {
+    const startTime = performance.now();
+    this.logger.logFunctionEntry('submitToLLM', { nodeId });
+
+    try {
+      this.validator.validateNodeId(nodeId, 'submitToLLM');
+      
+      const node = this.nodes.get(nodeId);
+      const nodeExists = !!node;
+      this.logger.logBranch('submitToLLM', 'nodeExists', nodeExists, { nodeId });
+      
+      if (!nodeExists) {
+        throw this.errorFactory.createValidationError(
+          'nodeId',
+          nodeId,
+          'existing node ID',
+          'submitToLLM'
+        );
+      }
+
+      // Extract prompt content
+      const promptBlock = node.blocks.find(block => block.type === 'prompt');
+      const promptFound = !!promptBlock;
+      this.logger.logBranch('submitToLLM', 'promptFound', promptFound, { nodeId });
+      
+      if (!promptFound || !promptBlock.content.trim()) {
+        throw this.errorFactory.createValidationError(
+          'promptContent',
+          promptBlock?.content,
+          'non-empty prompt',
+          'submitToLLM'
+        );
+      }
+
+      // Show loading indicator
+      this.showLoadingIndicator(nodeId);
+      
+      try {
+        // Submit to Gemini service with streaming
+        let responseContent = '';
+        await geminiService.sendMessage(
+          promptBlock.content,
+          (chunk: string) => {
+            responseContent += chunk;
+            this.updateStreamingResponse(nodeId, responseContent);
+          }
+        );
+
+        // Remove temporary streaming block if exists
+        const node = this.nodes.get(nodeId);
+        if (node) {
+          const streamingBlockIndex = node.blocks.findIndex(block => block.id.includes('_streaming_'));
+          if (streamingBlockIndex !== -1) {
+            node.blocks.splice(streamingBlockIndex, 1);
+          }
+        }
+        
+        // Create final response block
+        this.createResponseBlock(nodeId, responseContent);
+        
+        this.logger.logInfo('LLM submission completed successfully', 'submitToLLM', {
+          nodeId,
+          responseLength: responseContent.length
+        });
+
+      } finally {
+        this.hideLoadingIndicator(nodeId);
+      }
+
+      const executionTime = performance.now() - startTime;
+      this.logger.logPerformance('submitToLLM', 'llm_submission', executionTime);
+      this.logger.logFunctionExit('submitToLLM', { 
+        nodeId, 
+        responseGenerated: true 
+      }, executionTime);
+
+    } catch (error) {
+      this.logger.logError(error as Error, 'submitToLLM', { nodeId });
+      this.hideLoadingIndicator(nodeId);
+      
+      if (error instanceof ValidationError || error instanceof NodeEditorError) {
+        throw error;
+      }
+      
+      throw this.errorFactory.createNodeEditorError(
+        'Failed to submit to LLM',
+        'LLM_SUBMISSION_FAILED',
+        'Unable to get AI response. Please try again.',
+        'submitToLLM',
+        { nodeId, error: String(error) }
+      );
+    }
+  }
+
+  /**
+   * Create response block for LLM-generated content
+   * 
+   * @param nodeId - ID of the parent node
+   * @param responseContent - LLM-generated response text
+   * @private
+   */
+  private createResponseBlock(nodeId: string, responseContent: string): void {
+    const startTime = performance.now();
+    this.logger.logFunctionEntry('createResponseBlock', { 
+      nodeId, 
+      contentLength: responseContent.length 
+    });
+
+    try {
+      const node = this.nodes.get(nodeId);
+      if (!node) {
+        throw this.errorFactory.createNodeEditorError(
+          `Node ${nodeId} not found`,
+          'NODE_NOT_FOUND',
+          'Unable to add response.',
+          'createResponseBlock',
+          { nodeId }
+        );
+      }
+
+      const responseBlock: NodeBlock = {
+        id: `${nodeId}_response_${Date.now()}`,
+        type: 'response',
+        content: responseContent,
+        position: node.blocks.length
+      };
+
+      this.validator.validateNodeBlock(responseBlock, 'createResponseBlock');
+      
+      node.blocks.push(responseBlock);
+      this.logger.logVariableAssignment('createResponseBlock', 'blocksCount', node.blocks.length);
+      
+      this.rerenderNode(node);
+      this.updateConnections();
+
+      const executionTime = performance.now() - startTime;
+      this.logger.logPerformance('createResponseBlock', 'response_creation', executionTime);
+      this.logger.logFunctionExit('createResponseBlock', { 
+        nodeId, 
+        blockId: responseBlock.id 
+      }, executionTime);
+
+    } catch (error) {
+      this.logger.logError(error as Error, 'createResponseBlock', { nodeId });
+      throw error;
+    }
+  }
+
+  /**
+   * Show loading indicator on a node
+   * 
+   * @param nodeId - ID of the node to show loading state
+   * @private
+   */
+  private showLoadingIndicator(nodeId: string): void {
+    this.logger.logFunctionEntry('showLoadingIndicator', { nodeId });
+    
+    try {
+      const nodeEl = document.getElementById(nodeId);
+      if (nodeEl) {
+        nodeEl.classList.add('loading');
+        
+        // Disable submit button
+        const submitBtn = nodeEl.querySelector('button[data-action="submitToLLM"]') as HTMLButtonElement;
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Loading...';
+        }
+        
+        this.logger.logInfo('Loading indicator shown', 'showLoadingIndicator', { nodeId });
+      }
+      
+      this.logger.logFunctionExit('showLoadingIndicator', { nodeId });
+    } catch (error) {
+      this.logger.logError(error as Error, 'showLoadingIndicator', { nodeId });
+    }
+  }
+
+  /**
+   * Hide loading indicator on a node
+   * 
+   * @param nodeId - ID of the node to hide loading state
+   * @private
+   */
+  private hideLoadingIndicator(nodeId: string): void {
+    this.logger.logFunctionEntry('hideLoadingIndicator', { nodeId });
+    
+    try {
+      const nodeEl = document.getElementById(nodeId);
+      if (nodeEl) {
+        nodeEl.classList.remove('loading');
+        
+        // Re-enable submit button
+        const submitBtn = nodeEl.querySelector('button[data-action="submitToLLM"]') as HTMLButtonElement;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit to Gemini';
+        }
+        
+        this.logger.logInfo('Loading indicator hidden', 'hideLoadingIndicator', { nodeId });
+      }
+      
+      this.logger.logFunctionExit('hideLoadingIndicator', { nodeId });
+    } catch (error) {
+      this.logger.logError(error as Error, 'hideLoadingIndicator', { nodeId });
+    }
+  }
+
+  /**
+   * Update streaming response content in real-time
+   * 
+   * @param nodeId - ID of the node being updated
+   * @param partialContent - Partial response content received so far
+   * @private
+   */
+  private updateStreamingResponse(nodeId: string, partialContent: string): void {
+    this.logger.logFunctionEntry('updateStreamingResponse', { 
+      nodeId, 
+      contentLength: partialContent.length 
+    });
+    
+    try {
+      // Check if response block exists, if not create a temporary one
+      const node = this.nodes.get(nodeId);
+      if (!node) return;
+      
+      let responseBlock = node.blocks.find(block => block.type === 'response' && block.id.includes('_streaming_'));
+      
+      if (!responseBlock) {
+        // Create temporary streaming response block
+        responseBlock = {
+          id: `${nodeId}_streaming_response`,
+          type: 'response',
+          content: partialContent,
+          position: node.blocks.length
+        };
+        node.blocks.push(responseBlock);
+        this.rerenderNode(node);
+      } else {
+        // Update existing streaming block
+        responseBlock.content = partialContent;
+        
+        // Update the textarea directly for smooth streaming
+        const blockEl = document.querySelector(`textarea[data-node-id="${nodeId}"][data-block-id="${responseBlock.id}"]`) as HTMLTextAreaElement;
+        if (blockEl) {
+          blockEl.value = partialContent;
+          // Auto-resize textarea
+          blockEl.style.height = 'auto';
+          blockEl.style.height = Math.min(blockEl.scrollHeight, 400) + 'px';
+        }
+      }
+      
+      this.logger.logDebug('Streaming response updated', 'updateStreamingResponse', { 
+        nodeId,
+        streamingBlockId: responseBlock.id
+      });
+      
+      this.logger.logFunctionExit('updateStreamingResponse', { nodeId });
+    } catch (error) {
+      this.logger.logError(error as Error, 'updateStreamingResponse', { nodeId });
     }
   }
 
@@ -1633,8 +1906,8 @@ export class GraphEditor {
 
     try {
       const rootId = this.createNode(null, [
-        { id: `root_${Date.now()}_prompt`, type: 'prompt', content: 'New root prompt...', position: 0 },
-        { id: `root_${Date.now()}_response`, type: 'response', content: 'New root response...', position: 1 }
+        { id: `root_${Date.now()}_prompt`, type: 'prompt', content: 'Enter your prompt here...', position: 0 }
+        // Response will be auto-generated after LLM submission
       ]);
       
       this.logger.logInfo('Root node created successfully', 'addRootNode', {
@@ -2733,100 +3006,5 @@ export class GraphEditor {
     this.updateConnections();
   }
 
-  /**
-   * Show loading indicator for a node
-   */
-  public showLoadingIndicator(nodeId: string): void {
-    const existingState = this.loadingStates.get(nodeId);
-    const now = Date.now();
-    
-    if (existingState) {
-      existingState.lastUpdated = now;
-    } else {
-      this.loadingStates.set(nodeId, {
-        nodeId,
-        isLoading: true,
-        lastUpdated: now
-      });
-    }
-    
-    const nodeEl = document.getElementById(nodeId);
-    if (nodeEl) {
-      nodeEl.classList.add('loading');
-    }
-  }
 
-  /**
-   * Hide loading indicator for a node
-   */
-  public hideLoadingIndicator(nodeId: string): void {
-    this.loadingStates.delete(nodeId);
-    
-    const nodeEl = document.getElementById(nodeId);
-    if (nodeEl) {
-      nodeEl.classList.remove('loading');
-    }
-  }
-
-  /**
-   * Add inline chat continuation
-   */
-  public addInlineChatContinuation(nodeId: string): void {
-    if (!this.chatStates.has(nodeId)) {
-      this.chatStates.set(nodeId, {
-        nodeId,
-        isExpanded: false,
-        isLoading: false,
-        hasError: false,
-        lastUpdated: Date.now()
-      });
-    }
-    
-    const node = this.nodes.get(nodeId);
-    if (node) {
-      node.blocks.push({
-        id: `${nodeId}_continuation_${Date.now()}`,
-        type: 'response' as any,
-        content: 'Continue conversation...',
-        position: node.blocks.length
-      });
-      this.renderNode(node);
-    }
-  }
-
-  /**
-   * Expand chat continuation
-   */
-  public expandChatContinuation(nodeId: string): void {
-    if (!this.chatStates.has(nodeId)) {
-      this.addInlineChatContinuation(nodeId);
-    }
-    
-    const chatState = this.chatStates.get(nodeId);
-    if (chatState) {
-      chatState.isExpanded = true;
-      chatState.lastUpdated = Date.now();
-    }
-    
-    const nodeEl = document.getElementById(nodeId);
-    if (nodeEl) {
-      nodeEl.classList.add('expanded');
-    }
-  }
-
-  /**
-   * Collapse chat continuation
-   */
-  public collapseChatContinuation(nodeId: string): void {
-    const chatState = this.chatStates.get(nodeId);
-    if (chatState) {
-      chatState.isExpanded = false;
-      chatState.lastUpdated = Date.now();
-    }
-    
-    const nodeEl = document.getElementById(nodeId);
-    if (nodeEl) {
-      nodeEl.classList.remove('expanded');
-    }
-  }
 }

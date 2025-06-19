@@ -53,7 +53,7 @@ function initializeEditor(): void {
       );
     }
 
-    const editor = new GraphEditor(canvas, canvasContent, connections);
+    const editor = new GraphEditor(canvas, canvasContent, connections, false);
     logger.logInfo('GraphEditor instance created successfully', 'initializeEditor');
     
     // Set up global button handlers with comprehensive error handling
@@ -280,8 +280,8 @@ function setupGlobalEventHandlers(
       }
     });
     
-    // Set up button handlers for markdown block additions
-    document.addEventListener('click', (e: Event) => {
+    // Set up button handlers for markdown block additions and LLM submission
+    document.addEventListener('click', async (e: Event) => {
       try {
         const target = e.target as HTMLElement;
         const isButton = target.classList.contains('btn');
@@ -300,6 +300,20 @@ function setupGlobalEventHandlers(
           if (nodeId) {
             editor.addMarkdownBlock(nodeId);
             logger.logInfo('Markdown block added via button', 'setupGlobalEventHandlers', { nodeId });
+          }
+        } else if (isButton && action === 'submitToLLM') {
+          const nodeId = target.getAttribute('data-node-id');
+          
+          logger.logUserInteraction('submit_to_llm_click', target.id || 'unnamed', { nodeId });
+          
+          if (nodeId) {
+            try {
+              await editor.submitToLLM(nodeId);
+              logger.logInfo('LLM submission triggered successfully', 'setupGlobalEventHandlers', { nodeId });
+            } catch (error) {
+              logger.logError(error as Error, 'setupGlobalEventHandlers.submitToLLM');
+              handleUserFacingError(error as Error, 'Failed to submit to AI');
+            }
           }
         }
       } catch (error) {
