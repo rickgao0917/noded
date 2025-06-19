@@ -231,7 +231,7 @@ Info:
     getCurrentConfig() {
         var _a;
         if (typeof window !== 'undefined') {
-            return (_a = window.NODE_EDITOR_CONFIG) === null || _a === void 0 ? void 0 : _a.DEBUG;
+            return ((_a = window.NODE_EDITOR_CONFIG) === null || _a === void 0 ? void 0 : _a.DEBUG) || null;
         }
         return null;
     }

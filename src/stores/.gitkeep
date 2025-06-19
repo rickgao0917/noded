@@ -1,0 +1,6 @@
+# Stores Directory
+
+This directory is reserved for state management stores as required by ts_readme.xml standards.
+
+Currently, the application uses class-based state management within the GraphEditor component.
+Future refactoring may extract state management into dedicated store modules placed here.

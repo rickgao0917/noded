@@ -1,4 +1,5 @@
 import { Logger } from './logger.js';
+import type { MarkedStatic } from '../types/markdown-libs.types.js';
 
 /**
  * Markdown processing utility for rendering text content
@@ -40,15 +41,15 @@ export class MarkdownProcessor {
       }
 
       // Configure marked with syntax highlighting
-      if (typeof window !== 'undefined' && (window as any).marked) {
-        const marked = (window as any).marked;
+      if (typeof window !== 'undefined' && window.marked) {
+        const marked: MarkedStatic = window.marked;
         
         // Configure marked options
         marked.setOptions({
           highlight: (code: string, lang: string) => {
-            if (typeof (window as any).hljs !== 'undefined' && lang) {
+            if (typeof window.hljs !== 'undefined' && lang) {
               try {
-                return (window as any).hljs.highlight(code, { language: lang }).value;
+                return window.hljs.highlight(code, { language: lang }).value;
               } catch (err) {
                 this.logger.logWarn('Syntax highlighting failed', 'renderMarkdown', { 
                   language: lang,
@@ -116,14 +117,14 @@ export class MarkdownProcessor {
     });
 
     try {
-      if (typeof (window as any).hljs !== 'undefined') {
+      if (typeof window.hljs !== 'undefined' && window.hljs) {
         const codeBlocks = element.querySelectorAll('pre code');
         
         this.logger.logLoop('highlightCodeBlocks', 'code_blocks_processing', codeBlocks.length);
         
         codeBlocks.forEach((block, index) => {
           try {
-            (window as any).hljs.highlightElement(block);
+            window.hljs!.highlightElement(block);
             this.logger.logInfo(`Code block ${index + 1} highlighted`, 'highlightCodeBlocks');
           } catch (error) {
             this.logger.logWarn(`Failed to highlight code block ${index + 1}`, 'highlightCodeBlocks', {

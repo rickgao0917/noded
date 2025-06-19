@@ -1,4 +1,5 @@
 import { Logger } from './logger.js';
+import type { QuillInstance, QuillConstructor, QuillDelta, QuillOperation, QuillOptions } from '../types/quill.types.js';
 
 /**
  * Quill editor manager for handling rich text editing
@@ -6,12 +7,12 @@ import { Logger } from './logger.js';
  */
 export class QuillManager {
   private logger: Logger;
-  private editors: Map<string, any> = new Map();
-  private quillInstance: any;
+  private editors: Map<string, QuillInstance> = new Map();
+  private quillInstance: QuillConstructor | undefined;
 
   constructor() {
     this.logger = new Logger('QuillManager');
-    this.quillInstance = (window as any).Quill;
+    this.quillInstance = window.Quill;
   }
 
   /**
@@ -28,7 +29,7 @@ export class QuillManager {
     initialContent: string,
     container: HTMLElement,
     onChange?: (content: string) => void
-  ): any {
+  ): QuillInstance {
     const startTime = performance.now();
     this.logger.logFunctionEntry('createEditor', { 
       blockId, 
@@ -53,7 +54,7 @@ export class QuillManager {
       container.appendChild(editorContainer);
 
       // Configure Quill options based on block type
-      const options = {
+      const options: QuillOptions = {
         theme: 'snow',
         placeholder: 'Start typing...',
         modules: {
@@ -69,6 +70,9 @@ export class QuillManager {
       };
 
       // Create Quill instance
+      if (!this.quillInstance) {
+        throw new Error('Quill constructor not available');
+      }
       const quill = new this.quillInstance(editorContainer, options);
 
       // Set initial content
@@ -126,9 +130,9 @@ export class QuillManager {
    * @param markdown - Markdown string to convert
    * @returns Quill Delta object
    */
-  private convertMarkdownToDelta(markdown: string): any {
+  private convertMarkdownToDelta(markdown: string): QuillDelta {
     const lines = markdown.split('\n');
-    const ops: any[] = [];
+    const ops: QuillOperation[] = [];
 
     for (const line of lines) {
       if (line.startsWith('# ')) {
@@ -157,19 +161,19 @@ export class QuillManager {
         let processedLine = line;
         
         // Bold
-        processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, (match, text) => {
+        processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, (_match, text: string) => {
           ops.push({ insert: text, attributes: { bold: true } });
           return '';
         });
         
         // Italic
-        processedLine = processedLine.replace(/\*(.*?)\*/g, (match, text) => {
+        processedLine = processedLine.replace(/\*(.*?)\*/g, (_match, text: string) => {
           ops.push({ insert: text, attributes: { italic: true } });
           return '';
         });
         
         // Code
-        processedLine = processedLine.replace(/`(.*?)`/g, (match, text) => {
+        processedLine = processedLine.replace(/`(.*?)`/g, (_match, text: string) => {
           ops.push({ insert: text, attributes: { code: true } });
           return '';
         });

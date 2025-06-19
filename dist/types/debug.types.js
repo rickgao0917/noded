@@ -1,0 +1,4 @@
+/**
+ * Debug configuration types
+ */
+export {};

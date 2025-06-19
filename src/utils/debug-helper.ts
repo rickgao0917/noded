@@ -6,6 +6,7 @@
  */
 
 import { Logger } from './logger.js';
+import type { DebugConfig, PartialDebugConfig } from '../types/debug.types.js';
 
 /**
  * Global debug helper for runtime configuration
@@ -246,21 +247,21 @@ Info:
     `);
   }
 
-  private getCurrentConfig(): any {
+  private getCurrentConfig(): DebugConfig | null {
     if (typeof window !== 'undefined') {
-      return (window as any).NODE_EDITOR_CONFIG?.DEBUG;
+      return window.NODE_EDITOR_CONFIG?.DEBUG || null;
     }
     return null;
   }
 
-  private updateAllLoggers(config: any): void {
+  private updateAllLoggers(config: PartialDebugConfig): void {
     this.loggers.forEach(logger => {
       logger.updateDebugConfig(config);
     });
     
     // Also update global config if it exists
-    if (typeof window !== 'undefined' && (window as any).NODE_EDITOR_CONFIG?.DEBUG) {
-      const globalConfig = (window as any).NODE_EDITOR_CONFIG.DEBUG;
+    if (typeof window !== 'undefined' && window.NODE_EDITOR_CONFIG?.DEBUG) {
+      const globalConfig = window.NODE_EDITOR_CONFIG.DEBUG;
       Object.assign(globalConfig, config);
     }
   }
@@ -271,5 +272,5 @@ export const debugHelper = new DebugHelper();
 
 // Expose to window for browser console access
 if (typeof window !== 'undefined') {
-  (window as any).debug = debugHelper;
+  window.debug = debugHelper;
 }

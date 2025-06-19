@@ -21,4 +21,4 @@ API_SETUP.md
 .env.production.local
 
 # Configuration files with API keys
-config.js
+config/config.js

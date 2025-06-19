@@ -3,6 +3,8 @@
  * Provides trace, debug, info, warn, error, and fatal logging levels
  */
 
+import type { DebugConfig, PartialDebugConfig } from '../types/debug.types.js';
+
 export enum LogLevel {
   TRACE = 'TRACE',
   DEBUG = 'DEBUG', 
@@ -28,27 +30,6 @@ export interface LogEntry {
   readonly returnValue?: unknown;
 }
 
-interface DebugConfig {
-  enabled: boolean;
-  levels: Record<string, boolean>;
-  types: Record<string, boolean>;
-  services: Record<string, boolean>;
-  functions: {
-    include: string[];
-    exclude: string[];
-  };
-  performance: {
-    warnThreshold: number;
-    errorThreshold: number;
-  };
-  format: {
-    pretty: boolean;
-    includeTimestamp: boolean;
-    includeMetadata: boolean;
-    includeStackTrace: boolean;
-    maxDepth: number;
-  };
-}
 
 export class Logger {
   private readonly serviceName: string;
@@ -66,8 +47,8 @@ export class Logger {
   }
 
   private loadDebugConfig(): void {
-    if (typeof window !== 'undefined' && (window as any).NODE_EDITOR_CONFIG?.DEBUG) {
-      this.debugConfig = (window as any).NODE_EDITOR_CONFIG.DEBUG;
+    if (typeof window !== 'undefined' && window.NODE_EDITOR_CONFIG?.DEBUG) {
+      this.debugConfig = window.NODE_EDITOR_CONFIG.DEBUG;
     }
   }
 
@@ -75,7 +56,7 @@ export class Logger {
    * Update debug configuration at runtime
    * Useful for debugging specific issues without reloading
    */
-  public updateDebugConfig(config: Partial<DebugConfig>): void {
+  public updateDebugConfig(config: PartialDebugConfig): void {
     if (!this.debugConfig) {
       this.debugConfig = {
         enabled: true,
@@ -411,7 +392,7 @@ export class Logger {
     }
   }
 
-  private truncateObject(obj: any, maxDepth: number, currentDepth: number = 0): any {
+  private truncateObject(obj: unknown, maxDepth: number, currentDepth: number = 0): unknown {
     if (currentDepth >= maxDepth) {
       return '[TRUNCATED]';
     }
@@ -421,10 +402,10 @@ export class Logger {
     }
 
     if (obj !== null && typeof obj === 'object') {
-      const truncated: any = {};
+      const truncated: Record<string, unknown> = {};
       for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          truncated[key] = this.truncateObject(obj[key], maxDepth, currentDepth + 1);
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          truncated[key] = this.truncateObject((obj as Record<string, unknown>)[key], maxDepth, currentDepth + 1);
         }
       }
       return truncated;
@@ -440,7 +421,7 @@ export class Logger {
     const sanitized: Record<string, unknown> = {};
     
     for (const key in parameters) {
-      if (parameters.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(parameters, key)) {
         const value = parameters[key];
         if (this.isSensitiveField(key)) {
           sanitized[key] = '[REDACTED]';

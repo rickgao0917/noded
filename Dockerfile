@@ -26,6 +26,7 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/index.html ./
 COPY --from=builder /app/standalone.html ./
+COPY --from=builder /app/config ./config
 
 # Expose port 8000
 EXPOSE 8000

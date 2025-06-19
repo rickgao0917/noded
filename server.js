@@ -4,7 +4,7 @@ const path = require('path');
 const url = require('url');
 
 // Simple Gemini API integration
-const GEMINI_API_KEY = 'AIzaSyBjgivUoXPF8QSz18fcKYtocSsL2Xjt2dI'; // Replace with your API key
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''; // Set via environment variable
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 /**

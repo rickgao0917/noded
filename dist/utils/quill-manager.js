@@ -54,6 +54,9 @@ export class QuillManager {
                 }
             };
             // Create Quill instance
+            if (!this.quillInstance) {
+                throw new Error('Quill constructor not available');
+            }
             const quill = new this.quillInstance(editorContainer, options);
             // Set initial content
             if (initialContent) {
@@ -139,17 +142,17 @@ export class QuillManager {
                 // Process inline formatting
                 let processedLine = line;
                 // Bold
-                processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, (match, text) => {
+                processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, (_match, text) => {
                     ops.push({ insert: text, attributes: { bold: true } });
                     return '';
                 });
                 // Italic
-                processedLine = processedLine.replace(/\*(.*?)\*/g, (match, text) => {
+                processedLine = processedLine.replace(/\*(.*?)\*/g, (_match, text) => {
                     ops.push({ insert: text, attributes: { italic: true } });
                     return '';
                 });
                 // Code
-                processedLine = processedLine.replace(/`(.*?)`/g, (match, text) => {
+                processedLine = processedLine.replace(/`(.*?)`/g, (_match, text) => {
                     ops.push({ insert: text, attributes: { code: true } });
                     return '';
                 });

@@ -109,7 +109,7 @@ export class Validator {
     /**
      * Validate DOM element exists and has correct type
      */
-    validateDOMElement(element, expectedType, functionName) {
+    validateDOMElement(element, _expectedType, functionName) {
         if (!element) {
             throw this.errorFactory.createDOMError(`Required DOM element not found`, 'ELEMENT_NOT_FOUND', 'Unable to initialize the editor. Please refresh the page.', functionName);
         }

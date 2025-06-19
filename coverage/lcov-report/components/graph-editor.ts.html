@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50.68% </span>
+                <span class="strong">50.59% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>594/1172</span>
+                <span class='fraction'>592/1170</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50.51% </span>
+                <span class="strong">50.43% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>583/1154</span>
+                <span class='fraction'>581/1152</span>
             </div>
         
             
@@ -3065,7 +3065,8 @@
 <a name='L3000'></a><a href='#L3000'>3000</a>
 <a name='L3001'></a><a href='#L3001'>3001</a>
 <a name='L3002'></a><a href='#L3002'>3002</a>
-<a name='L3003'></a><a href='#L3003'>3003</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L3003'></a><a href='#L3003'>3003</a>
+<a name='L3004'></a><a href='#L3004'>3004</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -3099,8 +3100,9 @@
 <span class="cline-any cline-yes">45x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">45x</span>
-<span class="cline-any cline-yes">45x</span>
-<span class="cline-any cline-yes">45x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">45x</span>
 <span class="cline-any cline-yes">45x</span>
 <span class="cline-any cline-yes">45x</span>
@@ -6080,10 +6082,10 @@
  * ```
  */
 &nbsp;
-import { GraphNode, NodeBlock, TreeLayout, Position } from '../types/graph.types.js';
+import { GraphNode, NodeBlock, Position } from '../types/graph.types.js';
 import { Logger } from '../utils/logger.js';
 import { Validator } from '../utils/type-guards.js';
-import { ErrorFactory, NodeEditorError, DOMError, TreeStructureError, ValidationError } from '../types/errors.js';
+import { ErrorFactory, NodeEditorError, TreeStructureError, ValidationError } from '../types/errors.js';
 import { calculateTreeLayout } from '../utils/tree-layout.js';
 import { geminiService } from '../services/gemini-service.js';
 &nbsp;
@@ -6101,8 +6103,9 @@ export class GraphEditor {
   private readonly NODE_HALF_WIDTH = 218; // Half of NODE_WIDTH for centering
   
   private nodes: Map&lt;string, GraphNode&gt; = new Map();
-  private chatStates: Map&lt;string, any&gt; = new Map();
-  private loadingStates: Map&lt;string, any&gt; = new Map();
+  // Chat states and loading states are managed internally by components
+  // private chatStates: Map&lt;string, any&gt; = new Map();
+  // private loadingStates: Map&lt;string, any&gt; = new Map();
   private selectedNode: GraphNode | null = null;
   private nodeCounter: number = 0;
   private scale: number = 1;
@@ -6243,9 +6246,9 @@ export class GraphEditor {
           const deltaY = <span class="cstat-no" title="statement not covered" >e.clientY - this.lastPanY;</span>
           
           // Apply damping factor for smoother movement
-          const dampingFactor = <span class="cstat-no" title="statement not covered" >1.2;</span>
-<span class="cstat-no" title="statement not covered" >          this.panX += deltaX * dampingFactor;</span>
-<span class="cstat-no" title="statement not covered" >          this.panY += deltaY * dampingFactor;</span>
+          const DAMPING_FACTOR = <span class="cstat-no" title="statement not covered" >1.2;</span>
+<span class="cstat-no" title="statement not covered" >          this.panX += deltaX * DAMPING_FACTOR;</span>
+<span class="cstat-no" title="statement not covered" >          this.panY += deltaY * DAMPING_FACTOR;</span>
           
 <span class="cstat-no" title="statement not covered" >          this.logger.logVariableAssignment('setupEventListeners', 'panX', this.panX);</span>
 <span class="cstat-no" title="statement not covered" >          this.logger.logVariableAssignment('setupEventListeners', 'panY', this.panY);</span>
@@ -6281,8 +6284,8 @@ export class GraphEditor {
           currentScale: this.scale
         });
         
-        const zoomSpeed = <span class="cstat-no" title="statement not covered" >0.001;</span>
-        const deltaScale = <span class="cstat-no" title="statement not covered" >-e.deltaY * zoomSpeed;</span>
+        const ZOOM_SPEED = <span class="cstat-no" title="statement not covered" >0.001;</span>
+        const deltaScale = <span class="cstat-no" title="statement not covered" >-e.deltaY * ZOOM_SPEED;</span>
         const newScale = <span class="cstat-no" title="statement not covered" >Math.max(0.1, Math.min(5, this.scale + deltaScale));</span>
         
 <span class="cstat-no" title="statement not covered" >        <span class="missing-if-branch" title="if path not taken" >I</span>if (newScale !== this.scale) {</span>
@@ -6824,9 +6827,9 @@ export class GraphEditor {
           const deltaY = <span class="cstat-no" title="statement not covered" >(e.clientY - startY) / this.scale;</span>
           
           // Apply slight acceleration for more responsive dragging
-          const accelerationFactor = <span class="cstat-no" title="statement not covered" >1.1;</span>
-          const adjustedDeltaX = <span class="cstat-no" title="statement not covered" >deltaX * accelerationFactor;</span>
-          const adjustedDeltaY = <span class="cstat-no" title="statement not covered" >deltaY * accelerationFactor;</span>
+          const ACCELERATION_FACTOR = <span class="cstat-no" title="statement not covered" >1.1;</span>
+          const adjustedDeltaX = <span class="cstat-no" title="statement not covered" >deltaX * ACCELERATION_FACTOR;</span>
+          const adjustedDeltaY = <span class="cstat-no" title="statement not covered" >deltaY * ACCELERATION_FACTOR;</span>
           
           // Log node dragging action
 <span class="cstat-no" title="statement not covered" >          this.logger.logUserInteraction('node_drag', node.id, {</span>
@@ -7684,7 +7687,7 @@ export class GraphEditor {
 &nbsp;
     try {
       const nodeWidth = this.NODE_WIDTH;
-      const horizontalSpacing = 150;
+      const HORIZONTAL_SPACING = 150;
       
       const hasChildren = node.children.length &gt; 0;
       this.logger.logBranch('calculateSubtreeWidth', 'hasChildren', hasChildren, {
@@ -7711,7 +7714,7 @@ export class GraphEditor {
         }
       }
       
-      const spacingWidth = <span class="cstat-no" title="statement not covered" >(node.children.length - 1) * horizontalSpacing;</span>
+      const spacingWidth = <span class="cstat-no" title="statement not covered" >(node.children.length - 1) * HORIZONTAL_SPACING;</span>
       const finalWidth = <span class="cstat-no" title="statement not covered" >Math.max(nodeWidth, totalChildrenWidth + spacingWidth);</span>
       
 <span class="cstat-no" title="statement not covered" >      this.logger.logVariableAssignment('calculateSubtreeWidth', 'finalWidth', finalWidth);</span>
@@ -7744,8 +7747,8 @@ export class GraphEditor {
     this.logger.logFunctionEntry('layoutSubtree', { nodeId: node.id, centerX, y });
 &nbsp;
     try {
-      const verticalSpacing = 300;
-      const horizontalSpacing = 150;
+      const VERTICAL_SPACING = 300;
+      const HORIZONTAL_SPACING = 150;
       
       // Position current node
       this.positionNode(node, centerX - this.NODE_HALF_WIDTH, y);
@@ -7771,7 +7774,7 @@ export class GraphEditor {
       }
       
       const totalChildWidth = <span class="cstat-no" title="statement not covered" >childWidths.reduce(<span class="fstat-no" title="function not covered" >(s</span>um, width) =&gt; <span class="cstat-no" title="statement not covered" >sum + width,</span> 0);</span>
-      const totalSpacing = <span class="cstat-no" title="statement not covered" >(node.children.length - 1) * horizontalSpacing;</span>
+      const totalSpacing = <span class="cstat-no" title="statement not covered" >(node.children.length - 1) * HORIZONTAL_SPACING;</span>
       const totalWidth = <span class="cstat-no" title="statement not covered" >totalChildWidth + totalSpacing;</span>
       
 <span class="cstat-no" title="statement not covered" >      this.logger.logVariableAssignment('layoutSubtree', 'totalWidth', totalWidth);</span>
@@ -7790,11 +7793,11 @@ export class GraphEditor {
             parentId: node.id,
             childId,
             childCenterX,
-            childY: y + verticalSpacing
+            childY: y + VERTICAL_SPACING
           });
           
-<span class="cstat-no" title="statement not covered" >          this.layoutSubtree(child, childCenterX, y + verticalSpacing);</span>
-<span class="cstat-no" title="statement not covered" >          currentX += childWidth + horizontalSpacing;</span>
+<span class="cstat-no" title="statement not covered" >          this.layoutSubtree(child, childCenterX, y + VERTICAL_SPACING);</span>
+<span class="cstat-no" title="statement not covered" >          currentX += childWidth + HORIZONTAL_SPACING;</span>
           
 <span class="cstat-no" title="statement not covered" >          this.logger.logVariableAssignment('layoutSubtree', 'currentX', currentX);</span>
         }
@@ -8204,7 +8207,7 @@ export class GraphEditor {
       
 <span class="cstat-no" title="statement not covered" >      this.logger.logLoop('collapseAllNodes', 'nodes_processing', this.nodes.size);</span>
       
-<span class="cstat-no" title="statement not covered" >      for (const [nodeId, node] of this.nodes.entries()) {</span>
+<span class="cstat-no" title="statement not covered" >      for (const [nodeId] of this.nodes.entries()) {</span>
         const nodeEl = <span class="cstat-no" title="statement not covered" >document.getElementById(nodeId);</span>
         const isCurrentlyCollapsed = <span class="cstat-no" title="statement not covered" >nodeEl?.getAttribute('data-collapsed') === 'true';</span>
         
@@ -8260,7 +8263,7 @@ export class GraphEditor {
       
 <span class="cstat-no" title="statement not covered" >      this.logger.logLoop('expandAllNodes', 'nodes_processing', this.nodes.size);</span>
       
-<span class="cstat-no" title="statement not covered" >      for (const [nodeId, node] of this.nodes.entries()) {</span>
+<span class="cstat-no" title="statement not covered" >      for (const [nodeId] of this.nodes.entries()) {</span>
         const nodeEl = <span class="cstat-no" title="statement not covered" >document.getElementById(nodeId);</span>
         const isCurrentlyCollapsed = <span class="cstat-no" title="statement not covered" >nodeEl?.getAttribute('data-collapsed') === 'true';</span>
         
@@ -8514,18 +8517,18 @@ export class GraphEditor {
       }, 50); // Small delay to ensure animations have started
 &nbsp;
       // Continuously update connections during animation
-      const animationDuration = 500;
-      const updateInterval = 50;
+      const ANIMATION_DURATION = 500;
+      const UPDATE_INTERVAL = 50;
       let elapsed = 0;
       
       const connectionUpdateInterval = setInterval(<span class="fstat-no" title="function not covered" >() =</span>&gt; {
-<span class="cstat-no" title="statement not covered" >        elapsed += updateInterval;</span>
+<span class="cstat-no" title="statement not covered" >        elapsed += UPDATE_INTERVAL;</span>
 <span class="cstat-no" title="statement not covered" >        this.updateConnections();</span>
         
-<span class="cstat-no" title="statement not covered" >        <span class="missing-if-branch" title="if path not taken" >I</span>if (elapsed &gt;= animationDuration) {</span>
+<span class="cstat-no" title="statement not covered" >        <span class="missing-if-branch" title="if path not taken" >I</span>if (elapsed &gt;= ANIMATION_DURATION) {</span>
 <span class="cstat-no" title="statement not covered" >          clearInterval(connectionUpdateInterval);</span>
         }
-      }, updateInterval);
+      }, UPDATE_INTERVAL);
 &nbsp;
       // Center the view on the graph
       this.centerViewOnGraph();
@@ -9076,7 +9079,7 @@ export class GraphEditor {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-06-19T07:43:45.487Z
+                at 2025-06-19T19:34:36.764Z
             </div>
         <script src="../prettify.js"></script>
         <script>

@@ -4,6 +4,7 @@
  * Provides algorithms for positioning nodes in a tree structure with even spacing
  * and proper depth-based vertical alignment.
  */
+// Types are defined in graph.types.ts
 /**
  * Calculate optimal positions for all nodes in a tree structure
  *

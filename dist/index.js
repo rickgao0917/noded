@@ -16,6 +16,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 import { GraphEditor } from './components/graph-editor.js';
 import { Logger } from './utils/logger.js';
 import { ErrorFactory } from './types/errors.js';
+import './utils/debug-helper.js'; // Initializes window.debug
 /**
  * Initialize the graph editor application
  *

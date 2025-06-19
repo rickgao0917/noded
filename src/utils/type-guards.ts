@@ -6,7 +6,7 @@
  */
 
 import { GraphNode, NodeBlock, NodeBlockType, Position } from '../types/graph.types.js';
-import { ValidationError, ErrorFactory } from '../types/errors.js';
+import { ErrorFactory } from '../types/errors.js';
 
 /**
  * Type guard for NodeBlockType
@@ -147,7 +147,7 @@ export class Validator {
    */
   public validateDOMElement<T extends Element>(
     element: unknown,
-    expectedType: string,
+    _expectedType: string,
     functionName: string
   ): asserts element is T {
     if (!element) {

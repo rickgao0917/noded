@@ -45,8 +45,9 @@ export class GraphEditor {
         this.NODE_HEIGHT = 250; // Approximate height with content
         this.NODE_HALF_WIDTH = 218; // Half of NODE_WIDTH for centering
         this.nodes = new Map();
-        this.chatStates = new Map();
-        this.loadingStates = new Map();
+        // Chat states and loading states are managed internally by components
+        // private chatStates: Map<string, any> = new Map();
+        // private loadingStates: Map<string, any> = new Map();
         this.selectedNode = null;
         this.nodeCounter = 0;
         this.scale = 1;
@@ -145,9 +146,9 @@ export class GraphEditor {
                     const deltaX = e.clientX - this.lastPanX;
                     const deltaY = e.clientY - this.lastPanY;
                     // Apply damping factor for smoother movement
-                    const dampingFactor = 1.2;
-                    this.panX += deltaX * dampingFactor;
-                    this.panY += deltaY * dampingFactor;
+                    const DAMPING_FACTOR = 1.2;
+                    this.panX += deltaX * DAMPING_FACTOR;
+                    this.panY += deltaY * DAMPING_FACTOR;
                     this.logger.logVariableAssignment('setupEventListeners', 'panX', this.panX);
                     this.logger.logVariableAssignment('setupEventListeners', 'panY', this.panY);
                     this.updateCanvasTransform();
@@ -174,8 +175,8 @@ export class GraphEditor {
                     deltaY: e.deltaY,
                     currentScale: this.scale
                 });
-                const zoomSpeed = 0.001;
-                const deltaScale = -e.deltaY * zoomSpeed;
+                const ZOOM_SPEED = 0.001;
+                const deltaScale = -e.deltaY * ZOOM_SPEED;
                 const newScale = Math.max(0.1, Math.min(5, this.scale + deltaScale));
                 if (newScale !== this.scale) {
                     // Get mouse position relative to canvas
@@ -605,9 +606,9 @@ export class GraphEditor {
                     const deltaX = (e.clientX - startX) / this.scale;
                     const deltaY = (e.clientY - startY) / this.scale;
                     // Apply slight acceleration for more responsive dragging
-                    const accelerationFactor = 1.1;
-                    const adjustedDeltaX = deltaX * accelerationFactor;
-                    const adjustedDeltaY = deltaY * accelerationFactor;
+                    const ACCELERATION_FACTOR = 1.1;
+                    const adjustedDeltaX = deltaX * ACCELERATION_FACTOR;
+                    const adjustedDeltaY = deltaY * ACCELERATION_FACTOR;
                     // Log node dragging action
                     this.logger.logUserInteraction('node_drag', node.id, {
                         deltaX: adjustedDeltaX,
@@ -1237,7 +1238,7 @@ export class GraphEditor {
         this.logger.logFunctionEntry('calculateSubtreeWidth', { nodeId: node.id });
         try {
             const nodeWidth = this.NODE_WIDTH;
-            const horizontalSpacing = 150;
+            const HORIZONTAL_SPACING = 150;
             const hasChildren = node.children.length > 0;
             this.logger.logBranch('calculateSubtreeWidth', 'hasChildren', hasChildren, {
                 nodeId: node.id,
@@ -1257,7 +1258,7 @@ export class GraphEditor {
                     this.logger.logVariableAssignment('calculateSubtreeWidth', 'totalChildrenWidth', totalChildrenWidth);
                 }
             }
-            const spacingWidth = (node.children.length - 1) * horizontalSpacing;
+            const spacingWidth = (node.children.length - 1) * HORIZONTAL_SPACING;
             const finalWidth = Math.max(nodeWidth, totalChildrenWidth + spacingWidth);
             this.logger.logVariableAssignment('calculateSubtreeWidth', 'finalWidth', finalWidth);
             this.logger.logFunctionExit('calculateSubtreeWidth', { nodeId: node.id, width: finalWidth });
@@ -1280,8 +1281,8 @@ export class GraphEditor {
         var _a;
         this.logger.logFunctionEntry('layoutSubtree', { nodeId: node.id, centerX, y });
         try {
-            const verticalSpacing = 300;
-            const horizontalSpacing = 150;
+            const VERTICAL_SPACING = 300;
+            const HORIZONTAL_SPACING = 150;
             // Position current node
             this.positionNode(node, centerX - this.NODE_HALF_WIDTH, y);
             const hasChildren = node.children.length > 0;
@@ -1302,7 +1303,7 @@ export class GraphEditor {
                 }
             }
             const totalChildWidth = childWidths.reduce((sum, width) => sum + width, 0);
-            const totalSpacing = (node.children.length - 1) * horizontalSpacing;
+            const totalSpacing = (node.children.length - 1) * HORIZONTAL_SPACING;
             const totalWidth = totalChildWidth + totalSpacing;
             this.logger.logVariableAssignment('layoutSubtree', 'totalWidth', totalWidth);
             let currentX = centerX - totalWidth / 2;
@@ -1316,10 +1317,10 @@ export class GraphEditor {
                         parentId: node.id,
                         childId,
                         childCenterX,
-                        childY: y + verticalSpacing
+                        childY: y + VERTICAL_SPACING
                     });
-                    this.layoutSubtree(child, childCenterX, y + verticalSpacing);
-                    currentX += childWidth + horizontalSpacing;
+                    this.layoutSubtree(child, childCenterX, y + VERTICAL_SPACING);
+                    currentX += childWidth + HORIZONTAL_SPACING;
                     this.logger.logVariableAssignment('layoutSubtree', 'currentX', currentX);
                 }
             }
@@ -1618,7 +1619,7 @@ export class GraphEditor {
         try {
             let collapsedCount = 0;
             this.logger.logLoop('collapseAllNodes', 'nodes_processing', this.nodes.size);
-            for (const [nodeId, node] of this.nodes.entries()) {
+            for (const [nodeId] of this.nodes.entries()) {
                 const nodeEl = document.getElementById(nodeId);
                 const isCurrentlyCollapsed = (nodeEl === null || nodeEl === void 0 ? void 0 : nodeEl.getAttribute('data-collapsed')) === 'true';
                 this.logger.logBranch('collapseAllNodes', 'isCurrentlyCollapsed', isCurrentlyCollapsed, {
@@ -1658,7 +1659,7 @@ export class GraphEditor {
         try {
             let expandedCount = 0;
             this.logger.logLoop('expandAllNodes', 'nodes_processing', this.nodes.size);
-            for (const [nodeId, node] of this.nodes.entries()) {
+            for (const [nodeId] of this.nodes.entries()) {
                 const nodeEl = document.getElementById(nodeId);
                 const isCurrentlyCollapsed = (nodeEl === null || nodeEl === void 0 ? void 0 : nodeEl.getAttribute('data-collapsed')) === 'true';
                 this.logger.logBranch('expandAllNodes', 'isCurrentlyCollapsed', isCurrentlyCollapsed, {
@@ -1857,16 +1858,16 @@ export class GraphEditor {
                 this.updateConnections();
             }, 50); // Small delay to ensure animations have started
             // Continuously update connections during animation
-            const animationDuration = 500;
-            const updateInterval = 50;
+            const ANIMATION_DURATION = 500;
+            const UPDATE_INTERVAL = 50;
             let elapsed = 0;
             const connectionUpdateInterval = setInterval(() => {
-                elapsed += updateInterval;
+                elapsed += UPDATE_INTERVAL;
                 this.updateConnections();
-                if (elapsed >= animationDuration) {
+                if (elapsed >= ANIMATION_DURATION) {
                     clearInterval(connectionUpdateInterval);
                 }
-            }, updateInterval);
+            }, UPDATE_INTERVAL);
             // Center the view on the graph
             this.centerViewOnGraph();
             this.logger.logInfo('Auto layout completed successfully', 'autoLayout', {

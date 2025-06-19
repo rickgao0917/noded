@@ -11,3 +11,4 @@ services:
       - ./dist:/app/dist:ro
       - ./index.html:/app/index.html:ro
       - ./standalone.html:/app/standalone.html:ro
+      - ./config:/app/config:ro

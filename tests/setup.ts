@@ -133,6 +133,82 @@ export const createMockDOMElement = (tagName: string = 'div', id?: string) => {
   return element;
 };
 
+// Mock TextEncoder/TextDecoder for Node.js environment
+import { TextEncoder, TextDecoder } from 'util';
+(global as any).TextEncoder = TextEncoder;
+(global as any).TextDecoder = TextDecoder;
+
+// Mock window object with required libraries
+const mockWindow = {
+  performance: global.performance,
+  marked: {
+    parse: jest.fn((text: string) => `<p>${text}</p>`),
+    setOptions: jest.fn()
+  },
+  hljs: {
+    highlight: jest.fn((code: string, options: any) => ({ value: `<span class="hljs">${code}</span>` })),
+    highlightElement: jest.fn()
+  },
+  NODE_EDITOR_CONFIG: {
+    GEMINI_API_KEY: 'test-api-key',
+    DEBUG: {
+      enabled: true,
+      levels: {
+        TRACE: true,
+        DEBUG: true,
+        INFO: true,
+        WARN: true,
+        ERROR: true,
+        FATAL: true
+      },
+      types: {
+        function_entry: true,
+        function_exit: true,
+        branch_execution: true,
+        loop_execution: true,
+        variable_assignment: true,
+        performance_metric: true,
+        user_interaction: true,
+        business_logic: true,
+        trace: true,
+        debug: true,
+        warning: true,
+        error: true,
+        fatal: true
+      },
+      services: {},
+      functions: {
+        include: ['.*'],
+        exclude: []
+      },
+      performance: {
+        warnThreshold: 10,
+        errorThreshold: 100
+      },
+      format: {
+        pretty: true,
+        includeTimestamp: true,
+        includeMetadata: true,
+        includeStackTrace: true,
+        maxDepth: 3
+      }
+    }
+  },
+  Quill: jest.fn().mockImplementation(() => ({
+    root: {
+      innerHTML: '<p>Test content</p>'
+    },
+    getText: jest.fn(() => 'Test content'),
+    on: jest.fn(),
+    enable: jest.fn()
+  }))
+};
+
+// Set up window as both a property on global and as a global variable
+(global as any).window = mockWindow;
+// @ts-ignore
+global.window = mockWindow;
+
 // Export for use in tests
 export { originalConsole };
 

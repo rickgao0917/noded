@@ -11,10 +11,10 @@
  * ```
  */
 
-import { GraphNode, NodeBlock, TreeLayout, Position } from '../types/graph.types.js';
+import { GraphNode, NodeBlock, Position } from '../types/graph.types.js';
 import { Logger } from '../utils/logger.js';
 import { Validator } from '../utils/type-guards.js';
-import { ErrorFactory, NodeEditorError, DOMError, TreeStructureError, ValidationError } from '../types/errors.js';
+import { ErrorFactory, NodeEditorError, TreeStructureError, ValidationError } from '../types/errors.js';
 import { calculateTreeLayout } from '../utils/tree-layout.js';
 import { geminiService } from '../services/gemini-service.js';
 
@@ -32,8 +32,9 @@ export class GraphEditor {
   private readonly NODE_HALF_WIDTH = 218; // Half of NODE_WIDTH for centering
   
   private nodes: Map<string, GraphNode> = new Map();
-  private chatStates: Map<string, any> = new Map();
-  private loadingStates: Map<string, any> = new Map();
+  // Chat states and loading states are managed internally by components
+  // private chatStates: Map<string, any> = new Map();
+  // private loadingStates: Map<string, any> = new Map();
   private selectedNode: GraphNode | null = null;
   private nodeCounter: number = 0;
   private scale: number = 1;
@@ -174,9 +175,9 @@ export class GraphEditor {
           const deltaY = e.clientY - this.lastPanY;
           
           // Apply damping factor for smoother movement
-          const dampingFactor = 1.2;
-          this.panX += deltaX * dampingFactor;
-          this.panY += deltaY * dampingFactor;
+          const DAMPING_FACTOR = 1.2;
+          this.panX += deltaX * DAMPING_FACTOR;
+          this.panY += deltaY * DAMPING_FACTOR;
           
           this.logger.logVariableAssignment('setupEventListeners', 'panX', this.panX);
           this.logger.logVariableAssignment('setupEventListeners', 'panY', this.panY);
@@ -212,8 +213,8 @@ export class GraphEditor {
           currentScale: this.scale
         });
         
-        const zoomSpeed = 0.001;
-        const deltaScale = -e.deltaY * zoomSpeed;
+        const ZOOM_SPEED = 0.001;
+        const deltaScale = -e.deltaY * ZOOM_SPEED;
         const newScale = Math.max(0.1, Math.min(5, this.scale + deltaScale));
         
         if (newScale !== this.scale) {
@@ -755,9 +756,9 @@ export class GraphEditor {
           const deltaY = (e.clientY - startY) / this.scale;
           
           // Apply slight acceleration for more responsive dragging
-          const accelerationFactor = 1.1;
-          const adjustedDeltaX = deltaX * accelerationFactor;
-          const adjustedDeltaY = deltaY * accelerationFactor;
+          const ACCELERATION_FACTOR = 1.1;
+          const adjustedDeltaX = deltaX * ACCELERATION_FACTOR;
+          const adjustedDeltaY = deltaY * ACCELERATION_FACTOR;
           
           // Log node dragging action
           this.logger.logUserInteraction('node_drag', node.id, {
@@ -1615,7 +1616,7 @@ export class GraphEditor {
 
     try {
       const nodeWidth = this.NODE_WIDTH;
-      const horizontalSpacing = 150;
+      const HORIZONTAL_SPACING = 150;
       
       const hasChildren = node.children.length > 0;
       this.logger.logBranch('calculateSubtreeWidth', 'hasChildren', hasChildren, {
@@ -1642,7 +1643,7 @@ export class GraphEditor {
         }
       }
       
-      const spacingWidth = (node.children.length - 1) * horizontalSpacing;
+      const spacingWidth = (node.children.length - 1) * HORIZONTAL_SPACING;
       const finalWidth = Math.max(nodeWidth, totalChildrenWidth + spacingWidth);
       
       this.logger.logVariableAssignment('calculateSubtreeWidth', 'finalWidth', finalWidth);
@@ -1675,8 +1676,8 @@ export class GraphEditor {
     this.logger.logFunctionEntry('layoutSubtree', { nodeId: node.id, centerX, y });
 
     try {
-      const verticalSpacing = 300;
-      const horizontalSpacing = 150;
+      const VERTICAL_SPACING = 300;
+      const HORIZONTAL_SPACING = 150;
       
       // Position current node
       this.positionNode(node, centerX - this.NODE_HALF_WIDTH, y);
@@ -1702,7 +1703,7 @@ export class GraphEditor {
       }
       
       const totalChildWidth = childWidths.reduce((sum, width) => sum + width, 0);
-      const totalSpacing = (node.children.length - 1) * horizontalSpacing;
+      const totalSpacing = (node.children.length - 1) * HORIZONTAL_SPACING;
       const totalWidth = totalChildWidth + totalSpacing;
       
       this.logger.logVariableAssignment('layoutSubtree', 'totalWidth', totalWidth);
@@ -1721,11 +1722,11 @@ export class GraphEditor {
             parentId: node.id,
             childId,
             childCenterX,
-            childY: y + verticalSpacing
+            childY: y + VERTICAL_SPACING
           });
           
-          this.layoutSubtree(child, childCenterX, y + verticalSpacing);
-          currentX += childWidth + horizontalSpacing;
+          this.layoutSubtree(child, childCenterX, y + VERTICAL_SPACING);
+          currentX += childWidth + HORIZONTAL_SPACING;
           
           this.logger.logVariableAssignment('layoutSubtree', 'currentX', currentX);
         }
@@ -2135,7 +2136,7 @@ export class GraphEditor {
       
       this.logger.logLoop('collapseAllNodes', 'nodes_processing', this.nodes.size);
       
-      for (const [nodeId, node] of this.nodes.entries()) {
+      for (const [nodeId] of this.nodes.entries()) {
         const nodeEl = document.getElementById(nodeId);
         const isCurrentlyCollapsed = nodeEl?.getAttribute('data-collapsed') === 'true';
         
@@ -2191,7 +2192,7 @@ export class GraphEditor {
       
       this.logger.logLoop('expandAllNodes', 'nodes_processing', this.nodes.size);
       
-      for (const [nodeId, node] of this.nodes.entries()) {
+      for (const [nodeId] of this.nodes.entries()) {
         const nodeEl = document.getElementById(nodeId);
         const isCurrentlyCollapsed = nodeEl?.getAttribute('data-collapsed') === 'true';
         
@@ -2445,18 +2446,18 @@ export class GraphEditor {
       }, 50); // Small delay to ensure animations have started
 
       // Continuously update connections during animation
-      const animationDuration = 500;
-      const updateInterval = 50;
+      const ANIMATION_DURATION = 500;
+      const UPDATE_INTERVAL = 50;
       let elapsed = 0;
       
       const connectionUpdateInterval = setInterval(() => {
-        elapsed += updateInterval;
+        elapsed += UPDATE_INTERVAL;
         this.updateConnections();
         
-        if (elapsed >= animationDuration) {
+        if (elapsed >= ANIMATION_DURATION) {
           clearInterval(connectionUpdateInterval);
         }
-      }, updateInterval);
+      }, UPDATE_INTERVAL);
 
       // Center the view on the graph
       this.centerViewOnGraph();

@@ -302,7 +302,7 @@ export class Logger {
         if (obj !== null && typeof obj === 'object') {
             const truncated = {};
             for (const key in obj) {
-                if (obj.hasOwnProperty(key)) {
+                if (Object.prototype.hasOwnProperty.call(obj, key)) {
                     truncated[key] = this.truncateObject(obj[key], maxDepth, currentDepth + 1);
                 }
             }
@@ -316,7 +316,7 @@ export class Logger {
     sanitizeParameters(parameters) {
         const sanitized = {};
         for (const key in parameters) {
-            if (parameters.hasOwnProperty(key)) {
+            if (Object.prototype.hasOwnProperty.call(parameters, key)) {
                 const value = parameters[key];
                 if (this.isSensitiveField(key)) {
                     sanitized[key] = '[REDACTED]';

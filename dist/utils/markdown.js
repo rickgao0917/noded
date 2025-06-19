@@ -100,7 +100,7 @@ export class MarkdownProcessor {
             elementId: element.id || 'unnamed'
         });
         try {
-            if (typeof window.hljs !== 'undefined') {
+            if (typeof window.hljs !== 'undefined' && window.hljs) {
                 const codeBlocks = element.querySelectorAll('pre code');
                 this.logger.logLoop('highlightCodeBlocks', 'code_blocks_processing', codeBlocks.length);
                 codeBlocks.forEach((block, index) => {

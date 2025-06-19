@@ -5,27 +5,9 @@
  * and proper depth-based vertical alignment.
  */
 
-import { GraphNode, Position, TreeLayout } from '../types/graph.types.js';
+import { GraphNode, TreeLayout } from '../types/graph.types.js';
 
-/**
- * Internal representation of a node with its children for layout calculation
- * 
- * @internal
- */
-interface NodeWithChildren {
-  readonly node: GraphNode;
-  readonly children: readonly NodeWithChildren[];
-}
-
-/**
- * Result of layout calculation for a single node
- * 
- * @public
- */
-interface LayoutResult {
-  readonly nodeId: string;
-  readonly position: Position;
-}
+// Types are defined in graph.types.ts
 
 /**
  * Calculate optimal positions for all nodes in a tree structure
