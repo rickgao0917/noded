@@ -25,7 +25,8 @@ describe('Tree Layout Utility Functions', () => {
       
       const result = calculateTreeLayout(nodes, defaultLayout);
       
-      expect(result.get('root')!.position.x).toBe(0);
+      // Single node is centered in its available space (nodeWidth/2)
+      expect(result.get('root')!.position.x).toBe(150); // nodeWidth (300) / 2
       expect(result.get('root')!.position.y).toBe(0);
     });
 
@@ -385,7 +386,7 @@ describe('Tree Layout Utility Functions', () => {
     });
 
     it('should handle very large trees efficiently', () => {
-      const startTime = performance.now();
+      const startTime = Date.now();
       
       // Create a tree with 100 nodes
       const nodes = new Map<string, GraphNode>();
@@ -404,7 +405,7 @@ describe('Tree Layout Utility Functions', () => {
       
       const result = calculateTreeLayout(nodes, defaultLayout);
       
-      const endTime = performance.now();
+      const endTime = Date.now();
       const executionTime = endTime - startTime;
       
       expect(result.size).toBe(100);

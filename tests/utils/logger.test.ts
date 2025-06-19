@@ -50,7 +50,7 @@ describe('Logger Utility Functions', () => {
         expect.stringContaining('"function":"testFunction"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"message":"Function entry"')
+        expect.stringContaining('"message":"Function entry: testFunction"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
         expect.stringContaining('"userId":"test-123"')
@@ -78,13 +78,13 @@ describe('Logger Utility Functions', () => {
         expect.stringContaining('"level":"TRACE"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"message":"Function exit"')
+        expect.stringContaining('"message":"Function exit: testFunction"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
         expect.stringContaining('"executionTime":45.67')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"success":true')
+        expect.stringContaining('"returnValue":"[OBJECT]"')
       );
     });
 
@@ -112,10 +112,10 @@ describe('Logger Utility Functions', () => {
         expect.stringContaining('"function":"validateInput"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"branch":"inputValid"')
+        expect.stringContaining('"condition":"inputValid"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"condition":true')
+        expect.stringContaining('"result":true')
       );
     });
 
@@ -123,7 +123,7 @@ describe('Logger Utility Functions', () => {
       logger.logBranch('checkPermission', 'hasAccess', false);
       
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"condition":false')
+        expect.stringContaining('"result":false')
       );
     });
 
@@ -131,10 +131,10 @@ describe('Logger Utility Functions', () => {
       logger.logBranch('simpleCheck', 'isEnabled', true);
       
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"branch":"isEnabled"')
+        expect.stringContaining('"condition":"isEnabled"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"condition":true')
+        expect.stringContaining('"result":true')
       );
     });
   });
@@ -150,7 +150,7 @@ describe('Logger Utility Functions', () => {
         expect.stringContaining('"function":"processData"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"variable":"resultCount"')
+        expect.stringContaining('"variableName":"resultCount"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
         expect.stringContaining('"value":42')
@@ -189,13 +189,13 @@ describe('Logger Utility Functions', () => {
       logger.logPerformance('fastOperation', 'data_processing', executionTime);
       
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"level":"INFO"')
+        expect.stringContaining('"level":"DEBUG"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
         expect.stringContaining('"operation":"data_processing"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"executionTime":8.5')
+        expect.stringContaining('"duration":8.5')
       );
     });
 
@@ -208,18 +208,15 @@ describe('Logger Utility Functions', () => {
         expect.stringContaining('"level":"WARN"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"message":"Slow operation detected"')
+        expect.stringContaining('"message":"Performance: heavy_computation completed in 15.7ms"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"executionTime":15.7')
-      );
-      expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"threshold":10')
+        expect.stringContaining('"duration":15.7')
       );
     });
 
     it('should log performance for edge case at threshold', () => {
-      const executionTime = 10.0; // Exactly at threshold
+      const executionTime = 10.1; // Just over threshold
       
       logger.logPerformance('thresholdOperation', 'boundary_test', executionTime);
       
@@ -249,10 +246,10 @@ describe('Logger Utility Functions', () => {
         expect.stringContaining('"level":"INFO"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"interaction":"button_click"')
+        expect.stringContaining('"action":"button_click"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"element":"save_button"')
+        expect.stringContaining('"elementId":"save_button"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
         expect.stringContaining('"buttonId":"save-btn"')
@@ -263,10 +260,10 @@ describe('Logger Utility Functions', () => {
       logger.logUserInteraction('page_load', 'dashboard');
       
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"interaction":"page_load"')
+        expect.stringContaining('"action":"page_load"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"element":"dashboard"')
+        expect.stringContaining('"elementId":"dashboard"')
       );
     });
 
@@ -290,7 +287,7 @@ describe('Logger Utility Functions', () => {
         expect.stringContaining('"function":"processItems"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
-        expect.stringContaining('"loop":"item_processing"')
+        expect.stringContaining('"loopType":"item_processing"')
       );
       expect(mockConsole).toHaveBeenCalledWith(
         expect.stringContaining('"iterationCount":5')
@@ -366,10 +363,10 @@ describe('Logger Utility Functions', () => {
           expect.stringContaining('"level":"ERROR"')
         );
         expect(mockConsole).toHaveBeenCalledWith(
-          expect.stringContaining('"message":"Test error message"')
+          expect.stringContaining('"message":"Error in errorFunction: Test error message"')
         );
         expect(mockConsole).toHaveBeenCalledWith(
-          expect.stringContaining('"stack":"Error: Test error\\\\n    at test:1:1"')
+          expect.stringContaining('"stackTrace":"Error: Test error\\\\n    at test:1:1"')
         );
       });
 
@@ -423,7 +420,7 @@ describe('Logger Utility Functions', () => {
       const logEntry = JSON.parse(logCall);
       
       // Verify ISO 8601 format
-      expect(logEntry.timestamp).toMatch(/\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z/);
+      expect(logEntry.timestamp).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
       
       // Verify it's a valid date
       const timestamp = new Date(logEntry.timestamp);

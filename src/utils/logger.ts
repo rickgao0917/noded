@@ -148,7 +148,7 @@ export class Logger {
     this.log(LogLevel.INFO, message, {
       type: 'business_logic',
       functionName,
-      ...(metadata || {})
+      ...(metadata ? this.sanitizeContext(metadata) || {} : {})
     });
   }
 
@@ -209,7 +209,16 @@ export class Logger {
     };
 
     // Output structured JSON log
-    console.log(JSON.stringify(logEntry));
+    try {
+      console.log(JSON.stringify(logEntry));
+    } catch (error) {
+      // Handle JSON.stringify errors (e.g., circular references)
+      const safeLogEntry = {
+        ...logEntry,
+        metadata: '[CIRCULAR_REFERENCE]'
+      };
+      console.log(JSON.stringify(safeLogEntry));
+    }
   }
 
   /**
@@ -264,7 +273,7 @@ export class Logger {
    * Check if field contains sensitive data
    */
   private isSensitiveField(fieldName: string): boolean {
-    const sensitiveFields = ['password', 'token', 'key', 'secret', 'credential'];
+    const sensitiveFields = ['password', 'token', 'key', 'secret', 'credential', 'card', 'credit'];
     return sensitiveFields.some(sensitive => 
       fieldName.toLowerCase().includes(sensitive)
     );
