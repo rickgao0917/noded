@@ -855,22 +855,14 @@ export class GraphEditor {
                 // Show loading indicator
                 this.showLoadingIndicator(nodeId);
                 try {
+                    // Create response block immediately
+                    const responseBlockId = this.createResponseBlock(nodeId, '');
                     // Submit to Gemini service with streaming
                     let responseContent = '';
                     yield geminiService.sendMessage(promptBlock.content, (chunk) => {
                         responseContent += chunk;
-                        this.updateStreamingResponse(nodeId, responseContent);
+                        this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
                     });
-                    // Remove temporary streaming block if exists
-                    const node = this.nodes.get(nodeId);
-                    if (node) {
-                        const streamingBlockIndex = node.blocks.findIndex(block => block.id.includes('_streaming_'));
-                        if (streamingBlockIndex !== -1) {
-                            node.blocks.splice(streamingBlockIndex, 1);
-                        }
-                    }
-                    // Create final response block
-                    this.createResponseBlock(nodeId, responseContent);
                     this.logger.logInfo('LLM submission completed successfully', 'submitToLLM', {
                         nodeId,
                         responseLength: responseContent.length
@@ -901,6 +893,7 @@ export class GraphEditor {
      *
      * @param nodeId - ID of the parent node
      * @param responseContent - LLM-generated response text
+     * @returns ID of the created response block
      * @private
      */
     createResponseBlock(nodeId, responseContent) {
@@ -931,6 +924,7 @@ export class GraphEditor {
                 nodeId,
                 blockId: responseBlock.id
             }, executionTime);
+            return responseBlock.id;
         }
         catch (error) {
             this.logger.logError(error, 'createResponseBlock', { nodeId });
@@ -994,41 +988,37 @@ export class GraphEditor {
      *
      * @param nodeId - ID of the node being updated
      * @param partialContent - Partial response content received so far
+     * @param responseBlockId - Optional ID of the specific response block to update
      * @private
      */
-    updateStreamingResponse(nodeId, partialContent) {
+    updateStreamingResponse(nodeId, partialContent, responseBlockId) {
         this.logger.logFunctionEntry('updateStreamingResponse', {
             nodeId,
             contentLength: partialContent.length
         });
         try {
-            // Check if response block exists, if not create a temporary one
             const node = this.nodes.get(nodeId);
             if (!node)
                 return;
-            let responseBlock = node.blocks.find(block => block.type === 'response' && block.id.includes('_streaming_'));
+            // Find the response block by ID or look for existing response block
+            let responseBlock = responseBlockId
+                ? node.blocks.find(block => block.id === responseBlockId)
+                : node.blocks.find(block => block.type === 'response');
             if (!responseBlock) {
-                // Create temporary streaming response block
-                responseBlock = {
-                    id: `${nodeId}_streaming_response`,
-                    type: 'response',
-                    content: partialContent,
-                    position: node.blocks.length
-                };
-                node.blocks.push(responseBlock);
-                this.rerenderNode(node);
+                this.logger.logWarn('Response block not found for streaming', 'updateStreamingResponse', { nodeId, responseBlockId });
+                return;
             }
-            else {
-                // Update existing streaming block
-                responseBlock.content = partialContent;
-                // Update the textarea directly for smooth streaming
-                const blockEl = document.querySelector(`textarea[data-node-id="${nodeId}"][data-block-id="${responseBlock.id}"]`);
-                if (blockEl) {
-                    blockEl.value = partialContent;
-                    // Auto-resize textarea
-                    blockEl.style.height = 'auto';
-                    blockEl.style.height = Math.min(blockEl.scrollHeight, 400) + 'px';
-                }
+            // Update block content
+            responseBlock.content = partialContent;
+            // Update the textarea directly for smooth streaming
+            const blockEl = document.querySelector(`textarea[data-node-id="${nodeId}"][data-block-id="${responseBlock.id}"]`);
+            if (blockEl) {
+                blockEl.value = partialContent;
+                // Auto-resize textarea
+                blockEl.style.height = 'auto';
+                blockEl.style.height = Math.min(blockEl.scrollHeight, 400) + 'px';
+                // Scroll to bottom to show latest content
+                blockEl.scrollTop = blockEl.scrollHeight;
             }
             this.logger.logDebug('Streaming response updated', 'updateStreamingResponse', {
                 nodeId,

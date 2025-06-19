@@ -8,6 +8,7 @@
 import { GraphEditor } from './components/graph-editor.js';
 import { Logger } from './utils/logger.js';
 import { ErrorFactory } from './types/errors.js';
+import { debugHelper } from './utils/debug-helper.js';
 
 /**
  * Initialize the graph editor application

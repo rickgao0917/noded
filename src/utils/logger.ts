@@ -28,15 +28,94 @@ export interface LogEntry {
   readonly returnValue?: unknown;
 }
 
+interface DebugConfig {
+  enabled: boolean;
+  levels: Record<string, boolean>;
+  types: Record<string, boolean>;
+  services: Record<string, boolean>;
+  functions: {
+    include: string[];
+    exclude: string[];
+  };
+  performance: {
+    warnThreshold: number;
+    errorThreshold: number;
+  };
+  format: {
+    pretty: boolean;
+    includeTimestamp: boolean;
+    includeMetadata: boolean;
+    includeStackTrace: boolean;
+    maxDepth: number;
+  };
+}
+
 export class Logger {
   private readonly serviceName: string;
   private readonly sessionId: string;
   private correlationId: string;
+  private debugConfig: DebugConfig | null = null;
 
   constructor(serviceName: string) {
     this.serviceName = serviceName;
     this.sessionId = this.generateSessionId();
     this.correlationId = this.generateCorrelationId();
+    this.loadDebugConfig();
+    
+    // Register with debug helper will be done separately to avoid dynamic import issues
+  }
+
+  private loadDebugConfig(): void {
+    if (typeof window !== 'undefined' && (window as any).NODE_EDITOR_CONFIG?.DEBUG) {
+      this.debugConfig = (window as any).NODE_EDITOR_CONFIG.DEBUG;
+    }
+  }
+
+  /**
+   * Update debug configuration at runtime
+   * Useful for debugging specific issues without reloading
+   */
+  public updateDebugConfig(config: Partial<DebugConfig>): void {
+    if (!this.debugConfig) {
+      this.debugConfig = {
+        enabled: true,
+        levels: {},
+        types: {},
+        services: {},
+        functions: { include: ['.*'], exclude: [] },
+        performance: { warnThreshold: 10, errorThreshold: 100 },
+        format: {
+          pretty: true,
+          includeTimestamp: true,
+          includeMetadata: true,
+          includeStackTrace: true,
+          maxDepth: 3
+        }
+      };
+    }
+    
+    // Merge the new config
+    if (config.levels) {
+      this.debugConfig.levels = { ...this.debugConfig.levels, ...config.levels };
+    }
+    if (config.types) {
+      this.debugConfig.types = { ...this.debugConfig.types, ...config.types };
+    }
+    if (config.services) {
+      this.debugConfig.services = { ...this.debugConfig.services, ...config.services };
+    }
+    if (config.functions) {
+      this.debugConfig.functions = { ...this.debugConfig.functions, ...config.functions };
+    }
+    if (config.performance) {
+      this.debugConfig.performance = { ...this.debugConfig.performance, ...config.performance };
+    }
+    if (config.format) {
+      this.debugConfig.format = { ...this.debugConfig.format, ...config.format };
+    }
+    if (config.enabled !== undefined) {
+      this.debugConfig.enabled = config.enabled;
+    }
   }
 
   /**
@@ -117,7 +196,16 @@ export class Logger {
    * Log performance metrics
    */
   public logPerformance(functionName: string, operation: string, duration: number, metadata?: Record<string, unknown>): void {
-    const level = duration > 10 ? LogLevel.WARN : LogLevel.DEBUG;
+    const warnThreshold = this.debugConfig?.performance?.warnThreshold || 10;
+    const errorThreshold = this.debugConfig?.performance?.errorThreshold || 100;
+    
+    let level = LogLevel.DEBUG;
+    if (duration > errorThreshold) {
+      level = LogLevel.ERROR;
+    } else if (duration > warnThreshold) {
+      level = LogLevel.WARN;
+    }
+    
     this.log(level, `Performance: ${operation} completed in ${duration}ms`, {
       type: 'performance_metric',
       functionName,
@@ -197,6 +285,11 @@ export class Logger {
   }
 
   private log(level: LogLevel, message: string, metadata: Record<string, unknown> = {}): void {
+    // Check if logging is enabled
+    if (!this.shouldLog(level, metadata)) {
+      return;
+    }
+
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -208,9 +301,106 @@ export class Logger {
       metadata
     };
 
-    // Output structured JSON log
+    // Format and output the log
+    this.outputLog(logEntry);
+  }
+
+  private shouldLog(level: LogLevel, metadata: Record<string, unknown>): boolean {
+    // If no config, default to logging everything
+    if (!this.debugConfig) {
+      return true;
+    }
+
+    // Check if globally enabled
+    if (!this.debugConfig.enabled) {
+      return false;
+    }
+
+    // Check log level
+    if (this.debugConfig.levels[level] === false) {
+      return false;
+    }
+
+    // Check log type
+    const logType = metadata.type as string;
+    if (logType && this.debugConfig.types[logType] === false) {
+      return false;
+    }
+
+    // Check service filter
+    if (this.debugConfig.services[this.serviceName] === false) {
+      return false;
+    }
+
+    // Check function filters
+    const functionName = metadata.functionName as string;
+    if (functionName) {
+      // Check exclude patterns first
+      if (this.debugConfig.functions.exclude) {
+        for (const pattern of this.debugConfig.functions.exclude) {
+          if (pattern && new RegExp(pattern).test(functionName)) {
+            return false;
+          }
+        }
+      }
+
+      // Check include patterns
+      if (this.debugConfig.functions.include && this.debugConfig.functions.include.length > 0) {
+        let included = false;
+        for (const pattern of this.debugConfig.functions.include) {
+          if (pattern && new RegExp(pattern).test(functionName)) {
+            included = true;
+            break;
+          }
+        }
+        if (!included) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  private outputLog(logEntry: LogEntry): void {
     try {
-      console.log(JSON.stringify(logEntry));
+      const config = this.debugConfig?.format || {
+        pretty: true,
+        includeTimestamp: true,
+        includeMetadata: true,
+        includeStackTrace: true,
+        maxDepth: 3
+      };
+      
+      // Filter log entry based on config
+      const filteredEntry: any = {};
+      
+      if (config.includeTimestamp !== false) {
+        filteredEntry.timestamp = logEntry.timestamp;
+      }
+      
+      filteredEntry.level = logEntry.level;
+      filteredEntry.service = logEntry.service;
+      filteredEntry.function = logEntry.function;
+      filteredEntry.correlationId = logEntry.correlationId;
+      filteredEntry.sessionId = logEntry.sessionId;
+      filteredEntry.message = logEntry.message;
+      
+      if (config.includeMetadata !== false && logEntry.metadata) {
+        filteredEntry.metadata = this.truncateObject(logEntry.metadata, config.maxDepth || 3);
+        
+        // Remove stack trace if configured
+        if (!config.includeStackTrace && filteredEntry.metadata.stackTrace) {
+          delete filteredEntry.metadata.stackTrace;
+        }
+      }
+      
+      // Output with pretty printing if configured
+      if (config.pretty) {
+        console.log(JSON.stringify(filteredEntry, null, 2));
+      } else {
+        console.log(JSON.stringify(filteredEntry));
+      }
     } catch (error) {
       // Handle JSON.stringify errors (e.g., circular references)
       const safeLogEntry = {
@@ -219,6 +409,28 @@ export class Logger {
       };
       console.log(JSON.stringify(safeLogEntry));
     }
+  }
+
+  private truncateObject(obj: any, maxDepth: number, currentDepth: number = 0): any {
+    if (currentDepth >= maxDepth) {
+      return '[TRUNCATED]';
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.truncateObject(item, maxDepth, currentDepth + 1));
+    }
+
+    if (obj !== null && typeof obj === 'object') {
+      const truncated: any = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          truncated[key] = this.truncateObject(obj[key], maxDepth, currentDepth + 1);
+        }
+      }
+      return truncated;
+    }
+
+    return obj;
   }
 
   /**

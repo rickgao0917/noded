@@ -682,12 +682,19 @@ describe('GraphEditor Component', () => {
       editor.addBlock(nodeId, 'markdown', 'Test content');
       
       // Verify performance logging occurred
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"level":"TRACE"')
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"executionTime"')
-      );
+      // Check that at least one call contains TRACE level
+      const calls = consoleSpy.mock.calls;
+      const hasTraceLog = calls.some(call => {
+        const logString = call[0];
+        return logString && logString.includes('TRACE');
+      });
+      const hasExecutionTime = calls.some(call => {
+        const logString = call[0];
+        return logString && logString.includes('executionTime');
+      });
+      
+      expect(hasTraceLog).toBe(true);
+      expect(hasExecutionTime).toBe(true);
       
       consoleSpy.mockRestore();
     });

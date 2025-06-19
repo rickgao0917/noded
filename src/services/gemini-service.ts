@@ -151,49 +151,97 @@ export class GeminiService {
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
         
-        // Process complete JSON objects from buffer
-        const objects = buffer.split('\n');
+        // Try to find complete JSON objects in the buffer
+        // The streaming response format is an array of JSON objects: [{...},{...}]
+        let startIdx = 0;
         
-        // Keep the last incomplete line in the buffer
-        buffer = objects.pop() || '';
-        
-        for (const objStr of objects) {
-          if (!objStr.trim()) continue;
+        while (true) {
+          // Find the start of a JSON object
+          const objStart = buffer.indexOf('{', startIdx);
+          if (objStart === -1) break;
           
-          let jsonStr = '';
-          try {
-            // Handle comma-separated JSON objects
-            jsonStr = objStr.startsWith(',') ? objStr.substring(1).trim() : objStr.trim();
-            if (!jsonStr || jsonStr === ']') continue;
+          // Try to find the matching closing brace
+          let braceCount = 0;
+          let inString = false;
+          let escapeNext = false;
+          let objEnd = -1;
+          
+          for (let i = objStart; i < buffer.length; i++) {
+            const char = buffer[i];
             
-            const data = JSON.parse(jsonStr);
+            if (escapeNext) {
+              escapeNext = false;
+              continue;
+            }
             
-            // Extract text from the response
-            if (data.candidates && data.candidates[0]?.content?.parts) {
-              const text = data.candidates[0].content.parts[0]?.text || '';
-              if (text) {
-                fullResponse += text;
-                onChunk(text);
-                
-                this.logger.logInfo('Received chunk from Gemini', 'sendMessage', {
-                  chunkLength: text.length,
-                  totalLength: fullResponse.length
-                });
-                
-                // Log streaming progress periodically (every 10 chunks)
-                if (fullResponse.length % 500 < text.length) {
-                  console.log(`📦 Streaming progress: ${fullResponse.length} characters received...`);
+            if (char === '\\') {
+              escapeNext = true;
+              continue;
+            }
+            
+            if (char === '"') {
+              inString = !inString;
+              continue;
+            }
+            
+            if (!inString) {
+              if (char === '{') braceCount++;
+              else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                  objEnd = i;
+                  break;
                 }
               }
             }
-          } catch (parseError) {
-            // Log parse errors but continue processing
-            if (jsonStr && jsonStr !== '{' && jsonStr !== '}') {
-              this.logger.logInfo('Skipping non-JSON line', 'sendMessage', {
-                line: objStr.substring(0, 50)
+          }
+          
+          if (objEnd !== -1) {
+            // We found a complete JSON object
+            const jsonStr = buffer.substring(objStart, objEnd + 1);
+            
+            try {
+              const data = JSON.parse(jsonStr);
+              
+              // Extract text from the response
+              if (data.candidates && data.candidates[0]?.content?.parts) {
+                const text = data.candidates[0].content.parts[0]?.text || '';
+                if (text) {
+                  fullResponse += text;
+                  onChunk(text);
+                  
+                  this.logger.logDebug('Received chunk from Gemini', 'sendMessage', {
+                    chunkLength: text.length,
+                    totalLength: fullResponse.length
+                  });
+                  
+                  // Log streaming progress periodically
+                  if (fullResponse.length % 500 < text.length) {
+                    console.log(`📦 Streaming progress: ${fullResponse.length} characters received...`);
+                  }
+                }
+              }
+            } catch (parseError) {
+              this.logger.logDebug('Failed to parse JSON object', 'sendMessage', {
+                error: String(parseError),
+                jsonLength: jsonStr.length
               });
             }
+            
+            // Move past this object
+            startIdx = objEnd + 1;
+          } else {
+            // No complete object found, keep the rest in buffer
+            buffer = buffer.substring(startIdx);
+            break;
           }
+        }
+        
+        // If we've processed all complete objects, clear the processed part
+        if (startIdx > 0 && startIdx < buffer.length) {
+          buffer = buffer.substring(startIdx);
+        } else if (startIdx >= buffer.length) {
+          buffer = '';
         }
       }
 
