@@ -15,11 +15,20 @@ import { ErrorFactory } from '../types/errors.js';
  */
 export class GeminiService {
     constructor() {
+        var _a, _b;
         this.apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent';
         this.logger = new Logger('GeminiService');
         this.errorFactory = new ErrorFactory('gemini-service');
-        // Temporary API key - replace with your actual key
-        this.apiKey = 'AIzaSyBjgivUoXPF8QSz18fcKYtocSsL2Xjt2dI'; // Paste your API key here
+        // Try to get API key from environment variable (works in Node.js/build time)
+        const envApiKey = typeof process !== 'undefined' && ((_a = process.env) === null || _a === void 0 ? void 0 : _a.GEMINI_API_KEY);
+        // In browser environment, check for configuration object
+        const configApiKey = typeof window !== 'undefined' &&
+            ((_b = window.NODE_EDITOR_CONFIG) === null || _b === void 0 ? void 0 : _b.GEMINI_API_KEY);
+        // Use environment variable first, then config object
+        this.apiKey = envApiKey || configApiKey || '';
+        if (!this.apiKey) {
+            this.logger.logWarn('No API key found. Please create config.js from config.example.js and add your Gemini API key.', 'constructor');
+        }
     }
     /**
      * Send a chat message to Gemini and get a streaming response
@@ -41,8 +50,8 @@ export class GeminiService {
                     throw this.errorFactory.createValidationError('message', message, 'non-empty string', 'sendMessage');
                 }
                 // Check API key
-                if (!this.apiKey || this.apiKey === 'YOUR_GEMINI_API_KEY_HERE') {
-                    throw this.errorFactory.createNodeEditorError('Gemini API key not configured', 'API_KEY_MISSING', 'Please set a valid Gemini API key in the code.', 'sendMessage');
+                if (!this.apiKey) {
+                    throw this.errorFactory.createNodeEditorError('Gemini API key not configured', 'API_KEY_MISSING', 'Please create config.js from config.example.js and add your Gemini API key.', 'sendMessage');
                 }
                 // Prepare request
                 const requestBody = {

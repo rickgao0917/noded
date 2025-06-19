@@ -14,8 +14,23 @@ export class GeminiService {
   constructor() {
     this.logger = new Logger('GeminiService');
     this.errorFactory = new ErrorFactory('gemini-service');
-    // Get API key from environment variable
-    this.apiKey = process.env.GEMINI_API_KEY || '';
+    
+    // Try to get API key from environment variable (works in Node.js/build time)
+    const envApiKey = typeof process !== 'undefined' && process.env?.GEMINI_API_KEY;
+    
+    // In browser environment, check for configuration object
+    const configApiKey = typeof window !== 'undefined' && 
+                        (window as any).NODE_EDITOR_CONFIG?.GEMINI_API_KEY;
+    
+    // Use environment variable first, then config object
+    this.apiKey = envApiKey || configApiKey || '';
+    
+    if (!this.apiKey) {
+      this.logger.logWarn(
+        'No API key found. Please create config.js from config.example.js and add your Gemini API key.',
+        'constructor'
+      );
+    }
   }
 
   /**
@@ -50,7 +65,7 @@ export class GeminiService {
         throw this.errorFactory.createNodeEditorError(
           'Gemini API key not configured',
           'API_KEY_MISSING',
-          'Please set the GEMINI_API_KEY environment variable.',
+          'Please create config.js from config.example.js and add your Gemini API key.',
           'sendMessage'
         );
       }

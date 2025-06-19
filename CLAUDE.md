@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a sophisticated graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes with comprehensive features. Each node contains multiple blocks (chat, prompt, response, markdown) representing conversation states, with child nodes creating branches or variations. The system features comprehensive logging, error handling, AI integration (Gemini 2.0 Flash), rich text editing capabilities, and a guaranteed tree structure with DOM-based rendering.
+This is a graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes. Each node contains multiple blocks (prompt, response, markdown) and represents a conversation state, with child nodes representing edits or variations creating a guaranteed tree structure with DOM-based rendering.
 
 ## Development Commands
 
@@ -14,7 +14,6 @@ npm run build           # Compile TypeScript to dist/
 npm run build:strict    # Full build with strict checking and linting
 npm run dev             # Watch mode compilation  
 npm run serve           # Start Python HTTP server on port 8000
-npm run server          # Start Node.js server with Gemini API integration
 npm run start           # Build and start Python server
 npm run typecheck       # Type checking without compilation
 npm run lint            # ESLint with zero warnings tolerance
@@ -38,7 +37,6 @@ npm run format:check    # Check code formatting
 1. `npm run build` - Compile TypeScript
 2. `npm run serve` - Start Python server on port 8000 (or use alternative port if 8000 is busy)
 3. Open `http://localhost:8000` for the modular version or open `standalone.html` directly in browser
-4. Alternative: `npm run server` - Start Node.js server with full API integration
 
 **Docker Development:**
 ```bash
@@ -54,7 +52,6 @@ docker run -p 6001:8000 noded  # Run container
 
 **Port Configuration:**
 - Local development: Port 8000 (Python HTTP server)
-- Node.js server: Port 8000 (with API endpoints)
 - Docker container: Port 6001 (mapped to internal 8000)
 - Access via: `http://localhost:6001` when using Docker
 
@@ -121,7 +118,6 @@ If port 8000 is in use locally:
 src/
 ├── types/
 │   ├── graph.types.ts           # Core interfaces (GraphNode, NodeBlock, Position)
-│   ├── chat-interface.types.ts  # Enhanced chat interface types
 │   └── errors.ts                # Custom error hierarchy with context
 ├── components/
 │   └── graph-editor.ts          # Main GraphEditor class with comprehensive logging
@@ -130,9 +126,7 @@ src/
 ├── utils/
 │   ├── logger.ts                # Structured logging system
 │   ├── type-guards.ts           # Runtime validation and type guards
-│   ├── tree-layout.ts           # Tree positioning algorithm
-│   ├── markdown.ts              # Markdown processing and syntax highlighting
-│   └── quill-manager.ts         # Rich text editor management
+│   └── tree-layout.ts           # Tree positioning algorithm
 └── index.ts                     # DOM setup, event delegation, global error handling
 ```
 
@@ -220,56 +214,41 @@ This project strictly adheres to the comprehensive TypeScript coding standards d
 - Graceful degradation for DOM manipulation failures
 - Comprehensive validation preventing invalid tree states
 
-## AI Integration and Services
+## AI Integration
 
 **Gemini 2.0 Flash Integration** (`src/services/gemini-service.ts`):
 - Full streaming API support with real-time response chunks
 - Comprehensive error handling and retry logic
-- Terminal logging for development visibility
+- Browser console logging for development visibility
 - Configurable generation parameters (temperature, topK, topP, maxOutputTokens)
 - User-friendly error messages with technical details separated
 - Performance tracking and response time monitoring
+- Secure API key configuration via external config file
 
-**Enhanced Chat Interface** (`src/types/chat-interface.types.ts`):
-- State management for chat continuation interfaces
-- Loading indicator states for API calls
-- Multiple input modes: compact, expanded, loading, error
-- Branded types for type safety (ChatBlockId, LoadingStateId)
-- Comprehensive submission result tracking
+**LLM Submission Workflow:**
+- "Submit to Gemini" button on each node
+- Automatic loading state management during API calls
+- Streaming response display with real-time updates
+- Auto-creation of response blocks after successful submission
+- Error recovery with user-friendly messages
 
-**Server Integration** (`server.js`):
-- Node.js HTTP server with full API endpoint support
-- `/api/submit` endpoint for graph data submission to Gemini API
-- CORS handling for cross-origin requests
-- Static file serving with proper MIME types
-- Comprehensive request/response logging
-- Error handling with detailed error reporting
+### API Configuration
 
-## Rich Text Editing and Content Processing
+**Security-First Approach:**
+1. No hardcoded API keys in source code
+2. Configuration loaded from external `config.js` file
+3. `config.js` excluded from version control via `.gitignore`
+4. Clear setup instructions in `API_SETUP.md`
 
-**Quill Editor Integration** (`src/utils/quill-manager.ts`):
-- Rich text editing with toolbar support (headers, bold, italic, links, code blocks)
-- Markdown to Quill Delta conversion for seamless content handling
-- Dynamic editor creation and destruction for memory management
-- HTML and plain text content extraction
-- Event-driven content change notifications
-- Editor state management (enable/disable, content updates)
+**Setup Process:**
+1. Copy `config.example.js` to `config.js`
+2. Add your Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
+3. Build and run the project
 
-**Markdown Processing** (`src/utils/markdown.ts`):
-- Full markdown parsing with syntax highlighting via Highlight.js
-- Automatic code block highlighting for multiple languages
-- Markdown syntax detection for intelligent content rendering
-- Fallback rendering for environments without markdown libraries
-- Safe HTML escaping for security
-- Performance-optimized parsing with caching
-
-**Block Types and Content Management:**
-- **Chat blocks**: User input with rich text capabilities
-- **Prompt blocks**: Structured prompts for AI interactions
-- **Response blocks**: AI-generated responses with syntax highlighting
-- **Markdown blocks**: Documentation and formatted content
-- Dynamic content rendering based on block type
-- Inline editing with real-time validation
+**Configuration Loading:**
+- Browser: Loads from `window.NODE_EDITOR_CONFIG` object
+- Node.js: Can use `GEMINI_API_KEY` environment variable
+- Fallback error messages guide users to proper setup
 
 ## Testing Infrastructure
 
@@ -285,9 +264,7 @@ This project strictly adheres to the comprehensive TypeScript coding standards d
 ```
 tests/
 ├── components/
-│   └── graph-editor.test.ts     # GraphEditor component tests
-├── integration/
-│   └── api-endpoints.test.ts    # API integration tests
+│   └── graph-editor.test.ts     # GraphEditor component tests (45 tests)
 ├── utils/
 │   ├── logger.test.ts           # Logging system tests
 │   ├── tree-layout.test.ts      # Layout algorithm tests
@@ -298,8 +275,17 @@ tests/
 **Coverage Requirements:**
 - Global minimum: 80% (branches, functions, lines, statements)
 - Utility functions: 100% coverage requirement per `ts_readme.xml`
-- Integration tests for API endpoints and service interactions
 - Component tests for UI behavior and user interactions
+- LLM integration tests with proper mocking
+
+**Recent Test Updates (2025-06-19):**
+- Added comprehensive tests for LLM integration features
+- Tests for `submitToLLM` functionality with error handling
+- Loading indicator behavior tests
+- Streaming response update tests
+- Response block auto-creation tests
+- Prompt-only node creation tests
+- Fixed all failing tests and achieved 100% test pass rate
 
 ## Enhanced Features and Improvements
 
@@ -337,7 +323,7 @@ tests/
 - Responsive hover states for all interactive elements
 - Collision detection and prevention in auto-layout
 
-### Recent Improvements (Current Implementation)
+### Recent Improvements (2025-06-18)
 
 **Performance Optimizations:**
 - **Enhanced Dragging Speed**: Added damping factor (1.2x) for canvas panning and acceleration factor (1.1x) for node dragging
@@ -410,6 +396,29 @@ tests/
 - Added `overflow: visible` to SVG elements for proper line display
 - Improved SVG element initialization with proper width/height attributes
 - Fixed overlapping issues in auto-layout with proper dimension calculations
+
+### Simplified UI Implementation (2025-06-19)
+
+**Major UI Simplification:**
+- **Removed Sample Data**: Canvas starts empty, no pre-populated nodes
+- **Prompt-Only Nodes**: Nodes created with only prompt blocks by default
+- **LLM Integration**: Submit button on each node for Gemini API interaction
+- **Auto-Response Generation**: Response blocks created automatically after LLM submission
+- **Streamlined Workflow**: Prompt → Submit → Auto-generated Response
+
+**Implementation Details:**
+- Modified `GraphEditor` constructor to accept `initializeSampleData` parameter
+- Updated `createNode` to create prompt-only blocks when no blocks specified
+- Added `submitToLLM` method with comprehensive error handling and streaming support
+- Implemented loading states with visual indicators during API calls
+- Created response blocks dynamically with streaming content updates
+
+**API Key Management:**
+- Removed all hardcoded API keys from source code
+- Implemented secure configuration system via `config.js`
+- Added `config.example.js` template for easy setup
+- Configuration excluded from version control
+- Clear error messages guide users to proper API key setup
 
 ### Docker Configuration
 
