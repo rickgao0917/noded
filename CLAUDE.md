@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes. Each node contains multiple blocks (prompt, response, markdown) and represents a conversation state, with child nodes representing edits or variations creating a guaranteed tree structure with DOM-based rendering.
+This is a sophisticated graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes with comprehensive features. Each node contains multiple blocks (chat, prompt, response, markdown) representing conversation states, with child nodes creating branches or variations. The system features comprehensive logging, error handling, AI integration (Gemini 2.0 Flash), rich text editing capabilities, and a guaranteed tree structure with DOM-based rendering.
 
 ## Development Commands
 
@@ -14,15 +14,31 @@ npm run build           # Compile TypeScript to dist/
 npm run build:strict    # Full build with strict checking and linting
 npm run dev             # Watch mode compilation  
 npm run serve           # Start Python HTTP server on port 8000
-npm run start           # Build and start server
+npm run server          # Start Node.js server with Gemini API integration
+npm run start           # Build and start Python server
 npm run typecheck       # Type checking without compilation
 npm run lint            # ESLint with zero warnings tolerance
+```
+
+**Testing Commands:**
+```bash
+npm run test            # Run Jest test suite
+npm run test:watch      # Run tests in watch mode
+npm run test:coverage   # Generate coverage reports (80% minimum required)
+npm run test:ci         # CI-optimized test run with coverage
+```
+
+**Code Quality:**
+```bash
+npm run format          # Format code with Prettier
+npm run format:check    # Check code formatting
 ```
 
 **Local Development Workflow:**
 1. `npm run build` - Compile TypeScript
 2. `npm run serve` - Start Python server on port 8000 (or use alternative port if 8000 is busy)
 3. Open `http://localhost:8000` for the modular version or open `standalone.html` directly in browser
+4. Alternative: `npm run server` - Start Node.js server with full API integration
 
 **Docker Development:**
 ```bash
@@ -38,6 +54,7 @@ docker run -p 6001:8000 noded  # Run container
 
 **Port Configuration:**
 - Local development: Port 8000 (Python HTTP server)
+- Node.js server: Port 8000 (with API endpoints)
 - Docker container: Port 6001 (mapped to internal 8000)
 - Access via: `http://localhost:6001` when using Docker
 
@@ -103,15 +120,20 @@ If port 8000 is in use locally:
 ```
 src/
 ├── types/
-│   ├── graph.types.ts       # Core interfaces (GraphNode, NodeBlock, Position)
-│   └── errors.ts            # Custom error hierarchy with context
+│   ├── graph.types.ts           # Core interfaces (GraphNode, NodeBlock, Position)
+│   ├── chat-interface.types.ts  # Enhanced chat interface types
+│   └── errors.ts                # Custom error hierarchy with context
 ├── components/
-│   └── graph-editor.ts      # Main GraphEditor class with comprehensive logging
+│   └── graph-editor.ts          # Main GraphEditor class with comprehensive logging
+├── services/
+│   └── gemini-service.ts        # Gemini 2.0 Flash API integration service
 ├── utils/
-│   ├── logger.ts            # Structured logging system
-│   ├── type-guards.ts       # Runtime validation and type guards
-│   └── tree-layout.ts       # Tree positioning algorithm
-└── index.ts                 # DOM setup, event delegation, global error handling
+│   ├── logger.ts                # Structured logging system
+│   ├── type-guards.ts           # Runtime validation and type guards
+│   ├── tree-layout.ts           # Tree positioning algorithm
+│   ├── markdown.ts              # Markdown processing and syntax highlighting
+│   └── quill-manager.ts         # Rich text editor management
+└── index.ts                     # DOM setup, event delegation, global error handling
 ```
 
 ### TypeScript Standards Compliance
@@ -198,7 +220,124 @@ This project strictly adheres to the comprehensive TypeScript coding standards d
 - Graceful degradation for DOM manipulation failures
 - Comprehensive validation preventing invalid tree states
 
-### Recent Improvements (2025-06-18)
+## AI Integration and Services
+
+**Gemini 2.0 Flash Integration** (`src/services/gemini-service.ts`):
+- Full streaming API support with real-time response chunks
+- Comprehensive error handling and retry logic
+- Terminal logging for development visibility
+- Configurable generation parameters (temperature, topK, topP, maxOutputTokens)
+- User-friendly error messages with technical details separated
+- Performance tracking and response time monitoring
+
+**Enhanced Chat Interface** (`src/types/chat-interface.types.ts`):
+- State management for chat continuation interfaces
+- Loading indicator states for API calls
+- Multiple input modes: compact, expanded, loading, error
+- Branded types for type safety (ChatBlockId, LoadingStateId)
+- Comprehensive submission result tracking
+
+**Server Integration** (`server.js`):
+- Node.js HTTP server with full API endpoint support
+- `/api/submit` endpoint for graph data submission to Gemini API
+- CORS handling for cross-origin requests
+- Static file serving with proper MIME types
+- Comprehensive request/response logging
+- Error handling with detailed error reporting
+
+## Rich Text Editing and Content Processing
+
+**Quill Editor Integration** (`src/utils/quill-manager.ts`):
+- Rich text editing with toolbar support (headers, bold, italic, links, code blocks)
+- Markdown to Quill Delta conversion for seamless content handling
+- Dynamic editor creation and destruction for memory management
+- HTML and plain text content extraction
+- Event-driven content change notifications
+- Editor state management (enable/disable, content updates)
+
+**Markdown Processing** (`src/utils/markdown.ts`):
+- Full markdown parsing with syntax highlighting via Highlight.js
+- Automatic code block highlighting for multiple languages
+- Markdown syntax detection for intelligent content rendering
+- Fallback rendering for environments without markdown libraries
+- Safe HTML escaping for security
+- Performance-optimized parsing with caching
+
+**Block Types and Content Management:**
+- **Chat blocks**: User input with rich text capabilities
+- **Prompt blocks**: Structured prompts for AI interactions
+- **Response blocks**: AI-generated responses with syntax highlighting
+- **Markdown blocks**: Documentation and formatted content
+- Dynamic content rendering based on block type
+- Inline editing with real-time validation
+
+## Testing Infrastructure
+
+**Jest Configuration** (`jest.config.js`):
+- TypeScript support with ts-jest
+- JSDOM environment for DOM testing
+- Coverage requirements: 80% minimum globally, 100% for utilities
+- Module resolution with path mapping
+- Test file organization in dedicated `/tests` directory
+- Comprehensive coverage reporting (text, lcov, HTML, JSON)
+
+**Test Structure:**
+```
+tests/
+├── components/
+│   └── graph-editor.test.ts     # GraphEditor component tests
+├── integration/
+│   └── api-endpoints.test.ts    # API integration tests
+├── utils/
+│   ├── logger.test.ts           # Logging system tests
+│   ├── tree-layout.test.ts      # Layout algorithm tests
+│   └── type-guards.test.ts      # Validation system tests
+└── setup.ts                     # Test environment setup
+```
+
+**Coverage Requirements:**
+- Global minimum: 80% (branches, functions, lines, statements)
+- Utility functions: 100% coverage requirement per `ts_readme.xml`
+- Integration tests for API endpoints and service interactions
+- Component tests for UI behavior and user interactions
+
+## Enhanced Features and Improvements
+
+### Advanced UI Features
+
+**Enhanced Node Management:**
+- **Node Collapsing**: Toggle entire nodes to show only headers with visual indicators (▼/▶)
+- **Node Renaming**: Editable node names with inline text input and focus/blur handling
+- **Node Resizing**: Drag handles for width (300-600px) and flexible height adjustment
+- **Real-time Updates**: Connection lines update during node operations
+
+**Improved Block Functionality:**
+- **Block Minimizing**: Individual blocks can be collapsed with content preview
+- **Block Resizing**: Textarea height adjustment (60-400px) with drag handles
+- **Dynamic Headers**: Content-aware headers showing block type and preview
+- **Centralized Controls**: Unified button placement for consistent UX
+
+**Advanced Canvas Features:**
+- **Zoom Controls**: Mouse wheel zoom (0.1x-5x) with slider and button controls
+- **Auto-Layout System**: Intelligent tree reorganization with collision detection
+- **Canvas Panning**: Enhanced dragging with damping factors for smooth movement
+- **View Management**: Reset view functionality with zoom and position restoration
+
+### Performance Optimizations
+
+**Rendering Performance:**
+- `will-change: transform` for GPU acceleration
+- Reduced DOM reflows with optimized CSS transitions
+- Efficient SVG connection line rendering with proper viewport management
+- Memory-optimized event handling with proper cleanup
+
+**User Interaction Enhancements:**
+- Enhanced dragging speed with acceleration factors
+- Smooth animations for layout changes (0.5s transitions)
+- Responsive hover states for all interactive elements
+- Collision detection and prevention in auto-layout
+
+### Recent Improvements (Current Implementation)
 
 **Performance Optimizations:**
 - **Enhanced Dragging Speed**: Added damping factor (1.2x) for canvas panning and acceleration factor (1.1x) for node dragging
@@ -330,10 +469,51 @@ docker exec -it noded-app sh # Access container shell
 - Comprehensive error messages for debugging and user feedback
 - Textarea elements have proper accessibility attributes (id, name, autocomplete)
 
-**Development Best Practices:**
+## Deployment and Build Options
+
+**Multiple Deployment Targets:**
+1. **Modular Version** (`index.html`): ES6 imports, requires HTTP server, full feature set
+2. **Standalone Version** (`standalone.html`): Self-contained, direct browser access, embedded JavaScript
+3. **Docker Container**: Production deployment with multi-stage builds and optimized runtime
+4. **Node.js Server**: Full-stack development with API integration
+
+**Build Optimization:**
+- Multi-stage Docker builds for minimal production images
+- TypeScript compilation with strict mode enforcement
+- Asset optimization and proper MIME type handling
+- Read-only volume mounts for security
+
+## API Endpoints and Integration
+
+**Available Endpoints:**
+- `POST /api/submit` - Submit graph data to Gemini API for processing
+- Static file serving for all application assets
+- CORS-enabled for cross-origin development
+- Comprehensive request/response logging
+
+**Integration Examples:**
+```javascript
+// Submit graph data to Gemini API
+fetch('/api/submit', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(graphData)
+})
+.then(response => response.json())
+.then(data => console.log(data.geminiResponse));
+```
+
+## Development Best Practices
+
+**Code Quality Standards:**
 - Always run `npm run build` before testing changes
-- Use browser developer tools to view structured logging output
-- Maintain the comprehensive logging, error handling, and validation patterns established throughout the system
+- Use `npm run test` to ensure 80% minimum coverage
+- Run `npm run typecheck` to verify strict TypeScript compliance
+- Use `npm run format` to maintain consistent code style
+- Monitor browser developer tools for structured logging output
+
+**Architecture Guidelines:**
+- Maintain comprehensive logging, error handling, and validation patterns
 - **Strictly follow `ts_readme.xml` standards for all code modifications:**
   - Check naming conventions before creating new files/variables
   - Ensure all functions have explicit return types
@@ -341,5 +521,21 @@ docker exec -it noded-app sh # Access container shell
   - Use `readonly` modifiers for immutable structures
   - Maintain import organization order
   - Document complex types with JSDoc and examples
-- Run `npm run typecheck` to verify strict TypeScript compliance
-- Use `npm run lint` to ensure code style consistency (when ESLint is configured)
+
+**Performance Monitoring:**
+- Monitor function execution times (warnings for >10ms operations)
+- Track memory usage during node operations
+- Validate tree integrity on every modification
+- Use correlation IDs for request tracing across components
+
+**AI Integration Guidelines:**
+- Configure Gemini API keys securely (never commit keys to repository)
+- Implement proper error handling for API timeouts and failures
+- Monitor streaming response performance and chunk processing
+- Validate API responses before processing
+
+**Rich Text Editing:**
+- Initialize Quill editors only when needed for memory efficiency
+- Clean up editor instances when nodes are deleted
+- Handle markdown-to-delta conversion for seamless content flow
+- Validate content changes before applying to data model
