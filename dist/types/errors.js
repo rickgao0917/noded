@@ -108,12 +108,15 @@ export class ErrorFactory {
      * Create error context
      */
     createContext(functionName, parameters) {
-        return {
+        const context = {
             functionName,
-            parameters: parameters !== null && parameters !== void 0 ? parameters : undefined,
             timestamp: new Date().toISOString(),
             correlationId: this.correlationId
         };
+        if (parameters !== undefined) {
+            context.parameters = parameters;
+        }
+        return context;
     }
     /**
      * Create node editor error

@@ -15,7 +15,7 @@ import { ErrorFactory } from '../types/errors.js';
  */
 export function isNodeBlockType(value) {
     return typeof value === 'string' &&
-        ['chat', 'response', 'markdown'].includes(value);
+        ['chat', 'response', 'markdown', 'prompt'].includes(value);
 }
 /**
  * Type guard for Position interface
@@ -69,6 +69,7 @@ export function isGraphNode(value) {
     const node = value;
     return typeof node.id === 'string' &&
         node.id.length > 0 &&
+        typeof node.name === 'string' &&
         (node.parentId === null || typeof node.parentId === 'string') &&
         Array.isArray(node.children) &&
         node.children.every(child => typeof child === 'string') &&
@@ -98,7 +99,7 @@ export class Validator {
         if (typeof nodeId !== 'string') {
             throw this.errorFactory.createValidationError('nodeId', nodeId, 'string', functionName);
         }
-        if (nodeId.length === 0) {
+        if (nodeId.length === 0 || nodeId.trim().length === 0) {
             throw this.errorFactory.createValidationError('nodeId', nodeId, 'non-empty string', functionName);
         }
         if (existingIds && existingIds.has(nodeId)) {

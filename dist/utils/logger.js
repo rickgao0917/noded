@@ -4,12 +4,12 @@
  */
 export var LogLevel;
 (function (LogLevel) {
-    LogLevel["TRACE"] = "trace";
-    LogLevel["DEBUG"] = "debug";
-    LogLevel["INFO"] = "info";
-    LogLevel["WARN"] = "warn";
-    LogLevel["ERROR"] = "error";
-    LogLevel["FATAL"] = "fatal";
+    LogLevel["TRACE"] = "TRACE";
+    LogLevel["DEBUG"] = "DEBUG";
+    LogLevel["INFO"] = "INFO";
+    LogLevel["WARN"] = "WARN";
+    LogLevel["ERROR"] = "ERROR";
+    LogLevel["FATAL"] = "FATAL";
 })(LogLevel || (LogLevel = {}));
 export class Logger {
     constructor(serviceName) {
@@ -94,7 +94,7 @@ export class Logger {
      * Log business logic milestones
      */
     logInfo(message, functionName, metadata) {
-        this.log(LogLevel.INFO, message, Object.assign({ type: 'business_logic', functionName }, (metadata || {})));
+        this.log(LogLevel.INFO, message, Object.assign({ type: 'business_logic', functionName }, (metadata ? this.sanitizeContext(metadata) || {} : {})));
     }
     /**
      * Log warnings for recoverable issues
@@ -132,7 +132,14 @@ export class Logger {
             metadata
         };
         // Output structured JSON log
-        console.log(JSON.stringify(logEntry));
+        try {
+            console.log(JSON.stringify(logEntry));
+        }
+        catch (error) {
+            // Handle JSON.stringify errors (e.g., circular references)
+            const safeLogEntry = Object.assign(Object.assign({}, logEntry), { metadata: '[CIRCULAR_REFERENCE]' });
+            console.log(JSON.stringify(safeLogEntry));
+        }
     }
     /**
      * Sanitize parameters to remove sensitive data
@@ -182,7 +189,7 @@ export class Logger {
      * Check if field contains sensitive data
      */
     isSensitiveField(fieldName) {
-        const sensitiveFields = ['password', 'token', 'key', 'secret', 'credential'];
+        const sensitiveFields = ['password', 'token', 'key', 'secret', 'credential', 'card', 'credit'];
         return sensitiveFields.some(sensitive => fieldName.toLowerCase().includes(sensitive));
     }
     /**
