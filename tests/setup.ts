@@ -111,7 +111,7 @@ export const createMockNode = (id: string, overrides: any = {}) => ({
 export const createMockBlock = (id: string, type: 'chat' | 'response' | 'markdown' = 'chat', content?: string, overrides: any = {}) => ({
   id,
   type,
-  content: content || `Test ${type} content`,
+  content: content !== undefined ? content : `Test ${type} content`,
   position: 0,
   ...overrides,
 });

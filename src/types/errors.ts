@@ -193,12 +193,17 @@ export class ErrorFactory {
    * Create error context
    */
   public createContext(functionName: string, parameters?: Record<string, unknown>): ErrorContext {
-    return {
+    const context: ErrorContext = {
       functionName,
-      parameters: parameters ?? undefined,
       timestamp: new Date().toISOString(),
       correlationId: this.correlationId
     };
+    
+    if (parameters !== undefined) {
+      (context as any).parameters = parameters;
+    }
+    
+    return context;
   }
 
   /**

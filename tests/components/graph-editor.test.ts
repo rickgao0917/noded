@@ -25,16 +25,35 @@ describe('GraphEditor Component', () => {
     mockCanvas.id = 'canvas';
     mockCanvasContent = document.createElement('div');
     mockCanvasContent.id = 'canvasContent';
-    mockConnections = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    
+    // Create mock SVG element more explicitly
+    mockConnections = document.createElement('svg') as any as SVGElement;
     mockConnections.id = 'connections';
+    
+    // Add SVG-specific methods that GraphEditor might use
+    (mockConnections as any).setAttribute = jest.fn();
+    (mockConnections as any).appendChild = jest.fn();
+    (mockConnections as any).removeChild = jest.fn();
+    (mockConnections as any).querySelector = jest.fn();
+    (mockConnections as any).querySelectorAll = jest.fn(() => []);
+    
+    // Ensure the SVG element has the required properties
+    Object.defineProperty(mockConnections, 'style', {
+      value: {
+        width: '',
+        height: '',
+        overflow: '',
+      },
+      writable: true,
+    });
 
     // Add elements to DOM
     document.body.appendChild(mockCanvas);
     document.body.appendChild(mockCanvasContent);
     document.body.appendChild(mockConnections);
 
-    // Initialize GraphEditor
-    editor = new GraphEditor(mockCanvas, mockCanvasContent, mockConnections);
+    // Initialize GraphEditor without sample data for tests
+    editor = new GraphEditor(mockCanvas, mockCanvasContent, mockConnections, false);
 
     // Clear fetch mock
     (global.fetch as jest.Mock).mockClear();
@@ -206,7 +225,7 @@ describe('GraphEditor Component', () => {
         const blockId = editor.addBlock(nodeId, 'markdown', 'Test markdown content');
         
         const node = editor.getNode(nodeId)!;
-        expect(node.blocks).toHaveLength(2); // Initial chat block + new markdown block
+        expect(node.blocks).toHaveLength(3); // Initial prompt + response blocks + new markdown block
         
         const block = node.blocks.find(b => b.id === blockId);
         expect(block).toBeDefined();
@@ -222,8 +241,8 @@ describe('GraphEditor Component', () => {
         const block1 = node.blocks.find(b => b.id === block1Id)!;
         const block2 = node.blocks.find(b => b.id === block2Id)!;
         
-        expect(block1.position).toBe(1); // After initial chat block (position 0)
-        expect(block2.position).toBe(2);
+        expect(block1.position).toBe(2); // After initial prompt (0) and response (1) blocks
+        expect(block2.position).toBe(3);
       });
 
       it('should throw error for non-existent node', () => {
@@ -238,12 +257,12 @@ describe('GraphEditor Component', () => {
         const blockId = editor.addBlock(nodeId, 'markdown', 'Test content');
         
         const nodeBefore = editor.getNode(nodeId)!;
-        expect(nodeBefore.blocks).toHaveLength(2);
+        expect(nodeBefore.blocks).toHaveLength(3); // Initial prompt + response + added markdown
         
         editor.deleteBlock(nodeId, blockId);
         
         const nodeAfter = editor.getNode(nodeId)!;
-        expect(nodeAfter.blocks).toHaveLength(1);
+        expect(nodeAfter.blocks).toHaveLength(2); // Initial prompt + response
         expect(nodeAfter.blocks.find(b => b.id === blockId)).toBeUndefined();
       });
 
@@ -258,10 +277,11 @@ describe('GraphEditor Component', () => {
         const node = editor.getNode(nodeId)!;
         const blocks = node.blocks.sort((a, b) => a.position - b.position);
         
-        expect(blocks).toHaveLength(3); // Initial + 2 remaining
-        expect(blocks[0]?.position).toBe(0); // Initial chat block
-        expect(blocks[1]?.position).toBe(1); // block1
-        expect(blocks[2]?.position).toBe(2); // block3 (reordered from 3 to 2)
+        expect(blocks).toHaveLength(4); // Initial prompt + response + 2 remaining
+        expect(blocks[0]?.position).toBe(0); // Initial prompt block
+        expect(blocks[1]?.position).toBe(1); // Initial response block
+        expect(blocks[2]?.position).toBe(2); // block1 
+        expect(blocks[3]?.position).toBe(3); // block3 (reordered from 4 to 3)
       });
 
       it('should throw error for non-existent block', () => {

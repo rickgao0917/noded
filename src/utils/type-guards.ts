@@ -18,7 +18,7 @@ import { ValidationError, ErrorFactory } from '../types/errors.js';
  */
 export function isNodeBlockType(value: unknown): value is NodeBlockType {
   return typeof value === 'string' && 
-         ['chat', 'response', 'markdown'].includes(value);
+         ['chat', 'response', 'markdown', 'prompt'].includes(value);
 }
 
 /**
@@ -79,6 +79,7 @@ export function isGraphNode(value: unknown): value is GraphNode {
   
   return typeof node.id === 'string' &&
          node.id.length > 0 &&
+         typeof node.name === 'string' &&
          (node.parentId === null || typeof node.parentId === 'string') &&
          Array.isArray(node.children) &&
          node.children.every(child => typeof child === 'string') &&
@@ -122,7 +123,7 @@ export class Validator {
       );
     }
 
-    if (nodeId.length === 0) {
+    if (nodeId.length === 0 || nodeId.trim().length === 0) {
       throw this.errorFactory.createValidationError(
         'nodeId',
         nodeId,

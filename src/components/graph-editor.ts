@@ -31,6 +31,8 @@ export class GraphEditor {
   private readonly NODE_HALF_WIDTH = 218; // Half of NODE_WIDTH for centering
   
   private nodes: Map<string, GraphNode> = new Map();
+  private chatStates: Map<string, any> = new Map();
+  private loadingStates: Map<string, any> = new Map();
   private selectedNode: GraphNode | null = null;
   private nodeCounter: number = 0;
   private scale: number = 1;
@@ -51,11 +53,12 @@ export class GraphEditor {
    * @param canvas - Main canvas element for background interactions
    * @param canvasContent - Content container for transforms
    * @param connectionsEl - SVG element for rendering connections
+   * @param initializeSampleData - Whether to create sample data (default: true)
    * 
    * @throws {DOMError} When required DOM elements are invalid
    * @throws {NodeEditorError} When initialization fails
    */
-  constructor(canvas: HTMLElement, canvasContent: HTMLElement, connectionsEl: SVGElement) {
+  constructor(canvas: HTMLElement, canvasContent: HTMLElement, connectionsEl: SVGElement, initializeSampleData: boolean = true) {
     const startTime = performance.now();
     
     this.logger = new Logger('GraphEditor');
@@ -88,7 +91,9 @@ export class GraphEditor {
       this.logger.logVariableAssignment('constructor', 'connectionsEl', connectionsEl.id || 'unnamed');
 
       this.setupEventListeners();
-      this.createSampleData();
+      if (initializeSampleData) {
+        this.createSampleData();
+      }
       
       const executionTime = performance.now() - startTime;
       this.logger.logPerformance('constructor', 'initialization', executionTime);
@@ -415,8 +420,7 @@ export class GraphEditor {
         }
       }
 
-      // Validate blocks
-      this.validator.validateNonEmptyArray(blocks, 'blocks', 'createNode');
+      // Validate blocks (only if blocks are provided)
       for (const [index, block] of blocks.entries()) {
         try {
           this.validator.validateNodeBlock(block, 'createNode');
@@ -2733,6 +2737,19 @@ export class GraphEditor {
    * Show loading indicator for a node
    */
   public showLoadingIndicator(nodeId: string): void {
+    const existingState = this.loadingStates.get(nodeId);
+    const now = Date.now();
+    
+    if (existingState) {
+      existingState.lastUpdated = now;
+    } else {
+      this.loadingStates.set(nodeId, {
+        nodeId,
+        isLoading: true,
+        lastUpdated: now
+      });
+    }
+    
     const nodeEl = document.getElementById(nodeId);
     if (nodeEl) {
       nodeEl.classList.add('loading');
@@ -2743,6 +2760,8 @@ export class GraphEditor {
    * Hide loading indicator for a node
    */
   public hideLoadingIndicator(nodeId: string): void {
+    this.loadingStates.delete(nodeId);
+    
     const nodeEl = document.getElementById(nodeId);
     if (nodeEl) {
       nodeEl.classList.remove('loading');
@@ -2753,6 +2772,16 @@ export class GraphEditor {
    * Add inline chat continuation
    */
   public addInlineChatContinuation(nodeId: string): void {
+    if (!this.chatStates.has(nodeId)) {
+      this.chatStates.set(nodeId, {
+        nodeId,
+        isExpanded: false,
+        isLoading: false,
+        hasError: false,
+        lastUpdated: Date.now()
+      });
+    }
+    
     const node = this.nodes.get(nodeId);
     if (node) {
       node.blocks.push({
@@ -2769,6 +2798,16 @@ export class GraphEditor {
    * Expand chat continuation
    */
   public expandChatContinuation(nodeId: string): void {
+    if (!this.chatStates.has(nodeId)) {
+      this.addInlineChatContinuation(nodeId);
+    }
+    
+    const chatState = this.chatStates.get(nodeId);
+    if (chatState) {
+      chatState.isExpanded = true;
+      chatState.lastUpdated = Date.now();
+    }
+    
     const nodeEl = document.getElementById(nodeId);
     if (nodeEl) {
       nodeEl.classList.add('expanded');
@@ -2779,6 +2818,12 @@ export class GraphEditor {
    * Collapse chat continuation
    */
   public collapseChatContinuation(nodeId: string): void {
+    const chatState = this.chatStates.get(nodeId);
+    if (chatState) {
+      chatState.isExpanded = false;
+      chatState.lastUpdated = Date.now();
+    }
+    
     const nodeEl = document.getElementById(nodeId);
     if (nodeEl) {
       nodeEl.classList.remove('expanded');
