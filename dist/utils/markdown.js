@@ -16,18 +16,18 @@ export class MarkdownProcessor {
      */
     renderMarkdown(markdownText, blockType = 'markdown') {
         const startTime = performance.now();
+        // Validate input FIRST before any property access
+        if (typeof markdownText !== 'string') {
+            this.logger.logWarn('Invalid markdown input type', 'renderMarkdown', {
+                inputType: typeof markdownText
+            });
+            return '';
+        }
         this.logger.logFunctionEntry('renderMarkdown', {
             textLength: markdownText.length,
             blockType
         });
         try {
-            // Validate input
-            if (typeof markdownText !== 'string') {
-                this.logger.logWarn('Invalid markdown input type', 'renderMarkdown', {
-                    inputType: typeof markdownText
-                });
-                return '';
-            }
             if (!markdownText.trim()) {
                 this.logger.logInfo('Empty markdown input', 'renderMarkdown');
                 return '<div class="markdown-content"></div>';
@@ -72,7 +72,7 @@ export class MarkdownProcessor {
             else {
                 // Fallback if marked is not available
                 this.logger.logWarn('Marked library not available, using fallback', 'renderMarkdown');
-                const escapedText = this.escapeHtml(markdownText);
+                const escapedText = this.escapeHtmlBasic(markdownText);
                 const fallbackHtml = `<div class="markdown-content"><pre>${escapedText}</pre></div>`;
                 const executionTime = performance.now() - startTime;
                 this.logger.logFunctionExit('renderMarkdown', { fallback: true }, executionTime);
@@ -84,9 +84,10 @@ export class MarkdownProcessor {
                 textLength: markdownText.length,
                 blockType
             });
-            // Return escaped text as fallback
-            const escapedText = this.escapeHtml(markdownText);
-            return `<div class="markdown-content error"><pre>${escapedText}</pre></div>`;
+            // Try basic markdown parsing before escaping
+            const basicHtml = this.basicMarkdownParse(markdownText);
+            const escapedText = this.escapeHtml(basicHtml);
+            return `<div class="markdown-content"><pre>${escapedText}</pre></div>`;
         }
     }
     /**
@@ -158,6 +159,20 @@ export class MarkdownProcessor {
         return markdownPatterns.some(pattern => pattern.test(text));
     }
     /**
+     * Basic markdown parsing for error fallback
+     *
+     * @param text - Markdown text to parse
+     * @returns Basic HTML conversion
+     * @private
+     */
+    basicMarkdownParse(text) {
+        // Handle basic headers only for error case
+        return text
+            .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+            .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+            .replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    }
+    /**
      * Escape HTML characters for safe display
      *
      * @param text - Text to escape
@@ -165,9 +180,29 @@ export class MarkdownProcessor {
      * @private
      */
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        const escapeMap = {
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '"': '&quot;',
+            "'": '&#39;'
+        };
+        return text.replace(/[<>&"']/g, (char) => escapeMap[char] || char);
+    }
+    /**
+     * Basic HTML escaping for content going inside pre tags
+     *
+     * @param text - Text to escape
+     * @returns HTML-escaped text with minimal escaping
+     * @private
+     */
+    escapeHtmlBasic(text) {
+        const escapeMap = {
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;'
+        };
+        return text.replace(/[<>&]/g, (char) => escapeMap[char] || char);
     }
 }
 // Export singleton instance

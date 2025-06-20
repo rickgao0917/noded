@@ -311,6 +311,7 @@ export class QuillManager {
             editor.enable(enabled);
             this.logger.logInfo(`Editor ${enabled ? 'enabled' : 'disabled'}`, 'setEnabled', { blockId });
         }
+        // No logging for non-existent editors - fail silently
     }
 }
 // Export singleton instance

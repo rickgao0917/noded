@@ -56,10 +56,10 @@ export class DebugHelper {
     hideFunction(...functionNames) {
         var _a, _b;
         const currentConfig = this.getCurrentConfig();
-        const exclude = [...(((_a = currentConfig === null || currentConfig === void 0 ? void 0 : currentConfig.functions) === null || _a === void 0 ? void 0 : _a.exclude) || []), ...functionNames];
+        const exclude = [...(((_a = currentConfig.functions) === null || _a === void 0 ? void 0 : _a.exclude) || []), ...functionNames];
         this.updateAllLoggers({
             functions: {
-                include: ((_b = currentConfig === null || currentConfig === void 0 ? void 0 : currentConfig.functions) === null || _b === void 0 ? void 0 : _b.include) || ['.*'],
+                include: ((_b = currentConfig.functions) === null || _b === void 0 ? void 0 : _b.include) || ['.*'],
                 exclude
             }
         });
@@ -192,6 +192,13 @@ export class DebugHelper {
         console.log('📋 Current debug configuration:', config);
     }
     /**
+     * Reset configuration to defaults
+     */
+    reset() {
+        this.updateAllLoggers(this.getDefaultConfig());
+        console.log('🔄 Configuration reset to defaults');
+    }
+    /**
      * Show available commands
      */
     help() {
@@ -229,22 +236,109 @@ Info:
     `);
     }
     getCurrentConfig() {
-        var _a;
         if (typeof window !== 'undefined') {
-            return ((_a = window.NODE_EDITOR_CONFIG) === null || _a === void 0 ? void 0 : _a.DEBUG) || null;
+            // Ensure NODE_EDITOR_CONFIG exists
+            if (!window.NODE_EDITOR_CONFIG) {
+                window.NODE_EDITOR_CONFIG = {
+                    GEMINI_API_KEY: ''
+                };
+            }
+            // Now we know NODE_EDITOR_CONFIG exists, ensure DEBUG config exists with defaults
+            const config = window.NODE_EDITOR_CONFIG;
+            if (!config.DEBUG) {
+                config.DEBUG = this.getDefaultConfig();
+            }
+            return config.DEBUG;
         }
-        return null;
+        return this.getDefaultConfig();
     }
     updateAllLoggers(config) {
-        var _a;
         this.loggers.forEach(logger => {
             logger.updateDebugConfig(config);
         });
-        // Also update global config if it exists
-        if (typeof window !== 'undefined' && ((_a = window.NODE_EDITOR_CONFIG) === null || _a === void 0 ? void 0 : _a.DEBUG)) {
-            const globalConfig = window.NODE_EDITOR_CONFIG.DEBUG;
-            Object.assign(globalConfig, config);
+        // Always update global config (create if needed)
+        if (typeof window !== 'undefined') {
+            const globalConfig = this.getCurrentConfig(); // This ensures it exists
+            this.deepMergeConfig(globalConfig, config);
         }
+    }
+    deepMergeConfig(target, source) {
+        // Handle enabled
+        if (source.enabled !== undefined) {
+            target.enabled = source.enabled;
+        }
+        // Handle levels
+        if (source.levels) {
+            Object.assign(target.levels, source.levels);
+        }
+        // Handle types
+        if (source.types) {
+            Object.assign(target.types, source.types);
+        }
+        // Handle services
+        if (source.services) {
+            Object.assign(target.services, source.services);
+        }
+        // Handle functions with proper array merging
+        if (source.functions) {
+            if (source.functions.include !== undefined) {
+                target.functions.include = source.functions.include;
+            }
+            if (source.functions.exclude !== undefined) {
+                target.functions.exclude = source.functions.exclude;
+            }
+        }
+        // Handle performance
+        if (source.performance) {
+            Object.assign(target.performance, source.performance);
+        }
+        // Handle format
+        if (source.format) {
+            Object.assign(target.format, source.format);
+        }
+    }
+    getDefaultConfig() {
+        return {
+            enabled: true,
+            levels: {
+                TRACE: false,
+                DEBUG: false,
+                INFO: true,
+                WARN: true,
+                ERROR: true,
+                FATAL: true
+            },
+            types: {
+                function_entry: false,
+                function_exit: false,
+                branch_execution: false,
+                loop_execution: false,
+                variable_assignment: false,
+                user_interaction: true,
+                performance_metric: true,
+                business_logic: true,
+                error: true,
+                warning: true,
+                trace: false,
+                debug: false
+            },
+            services: {},
+            functions: {
+                include: ['.*'],
+                exclude: []
+            },
+            performance: {
+                warnThreshold: 10,
+                errorThreshold: 100
+            },
+            format: {
+                pretty: true,
+                includeTimestamp: true,
+                includeMetadata: true,
+                includeStackTrace: false,
+                maxDepth: 3
+            }
+        };
     }
 }
 // Create and export global instance

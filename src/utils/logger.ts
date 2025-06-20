@@ -50,7 +50,8 @@ export class Logger {
 
   private loadDebugConfig(): void {
     // Check both window and global.window for Jest compatibility
-    const globalWindow = (global as any).window || (typeof window !== 'undefined' ? window : null);
+    const globalWindow = (typeof globalThis !== 'undefined' && (globalThis as any).window) || 
+                         (typeof window !== 'undefined' ? window : null);
     
     if (globalWindow && globalWindow.NODE_EDITOR_CONFIG?.DEBUG) {
       this.debugConfig = JSON.parse(JSON.stringify(globalWindow.NODE_EDITOR_CONFIG.DEBUG));
@@ -275,6 +276,60 @@ export class Logger {
       functionName,
       ...metadata
     });
+  }
+
+  /**
+   * Start an operation and return a correlation ID
+   */
+  public startOperation(operationName: string): string {
+    const correlationId = this.generateCorrelationId();
+    this.correlationId = correlationId;
+    this.logFunctionEntry(operationName);
+    return correlationId;
+  }
+
+  /**
+   * End an operation
+   */
+  public endOperation(_correlationId: string): void {
+    // Operation end logging is handled in logFunctionExit
+  }
+
+  /**
+   * Standard logging methods
+   */
+  public debug(message: string, metadata?: Record<string, unknown>, correlationId?: string): void {
+    if (correlationId) this.correlationId = correlationId;
+    this.logDebug(message, undefined, metadata);
+  }
+
+  public info(message: string, metadata?: Record<string, unknown>, correlationId?: string): void {
+    if (correlationId) this.correlationId = correlationId;
+    this.logInfo(message, undefined, metadata);
+  }
+
+  public warn(message: string, metadata?: Record<string, unknown>, correlationId?: string): void {
+    if (correlationId) this.correlationId = correlationId;
+    this.logWarn(message, undefined, metadata);
+  }
+
+  public error(message: string, error: unknown, metadata?: Record<string, unknown>, correlationId?: string): void {
+    if (correlationId) this.correlationId = correlationId;
+    const errorDetails = error instanceof Error ? {
+      errorMessage: error.message,
+      errorStack: error.stack
+    } : { error };
+    
+    // If error is an Error object, use logError; otherwise use generic log
+    if (error instanceof Error) {
+      this.logError(error, message, { ...metadata, ...errorDetails });
+    } else {
+      this.log(LogLevel.ERROR, message, {
+        type: 'error',
+        ...metadata,
+        ...errorDetails
+      });
+    }
   }
 
   private log(level: LogLevel, message: string, metadata: Record<string, unknown> = {}): void {

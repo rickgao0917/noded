@@ -14,19 +14,26 @@ import { ErrorFactory } from '../types/errors.js';
  * Handles chat completions with streaming support
  */
 export class GeminiService {
-    constructor() {
+    constructor(apiKey, logger, errorFactory) {
         var _a, _b;
         this.apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent';
-        this.logger = new Logger('GeminiService');
-        this.errorFactory = new ErrorFactory('gemini-service');
-        // Try to get API key from environment variable (works in Node.js/build time)
-        const envApiKey = typeof process !== 'undefined' && ((_a = process.env) === null || _a === void 0 ? void 0 : _a.GEMINI_API_KEY);
-        // In browser environment, check for configuration object
-        const configApiKey = typeof window !== 'undefined' &&
-            ((_b = window.NODE_EDITOR_CONFIG) === null || _b === void 0 ? void 0 : _b.GEMINI_API_KEY);
-        // Use environment variable first, then config object
-        this.apiKey = envApiKey || configApiKey || '';
-        if (!this.apiKey) {
+        this.logger = logger || new Logger('GeminiService');
+        this.errorFactory = errorFactory || new ErrorFactory('gemini-service');
+        // Use injected API key first, then try environment/config
+        if (apiKey !== undefined) {
+            this.apiKey = apiKey;
+        }
+        else {
+            // Try to get API key from environment variable (works in Node.js/build time)
+            const envApiKey = typeof process !== 'undefined' && ((_a = process.env) === null || _a === void 0 ? void 0 : _a.GEMINI_API_KEY);
+            // In browser environment, check for configuration object with safe access
+            const configApiKey = typeof window !== 'undefined' &&
+                ((_b = window === null || window === void 0 ? void 0 : window.NODE_EDITOR_CONFIG) === null || _b === void 0 ? void 0 : _b.GEMINI_API_KEY);
+            // Use environment variable first, then config object
+            this.apiKey = envApiKey || configApiKey || '';
+        }
+        // Only log warning if no API key found and not injected
+        if (!this.apiKey && apiKey === undefined) {
             this.logger.logWarn('No API key found. Please create config.js from config.example.js and add your Gemini API key.', 'constructor');
         }
     }
@@ -49,7 +56,7 @@ export class GeminiService {
                 if (!message || !message.trim()) {
                     throw this.errorFactory.createValidationError('message', message, 'non-empty string', 'sendMessage');
                 }
-                // Check API key
+                // Check API key at call time
                 if (!this.apiKey) {
                     throw this.errorFactory.createNodeEditorError('Gemini API key not configured', 'API_KEY_MISSING', 'Please create config.js from config.example.js and add your Gemini API key.', 'sendMessage');
                 }
@@ -94,106 +101,111 @@ export class GeminiService {
                         statusText: response.statusText,
                         errorText
                     });
-                    throw this.errorFactory.createNodeEditorError(`Gemini API request failed: ${response.statusText}`, 'API_REQUEST_FAILED', 'Failed to get response from AI. Please try again.', 'sendMessage', { status: response.status, errorText });
+                    throw this.errorFactory.createNodeEditorError(`Gemini API request failed: ${response.statusText}`, 'GEMINI_API_ERROR', 'Failed to get response from AI. Please try again.', 'sendMessage', { status: response.status, errorText });
                 }
                 // Handle streaming response
                 const reader = (_a = response.body) === null || _a === void 0 ? void 0 : _a.getReader();
                 const decoder = new TextDecoder();
                 let fullResponse = '';
                 if (!reader) {
-                    throw this.errorFactory.createNodeEditorError('Response body is not readable', 'RESPONSE_NOT_READABLE', 'Failed to read AI response.', 'sendMessage');
+                    throw this.errorFactory.createNodeEditorError('Response body is not readable', 'GEMINI_STREAM_ERROR', 'Failed to read AI response.', 'sendMessage');
                 }
                 let buffer = '';
-                while (true) {
-                    const { done, value } = yield reader.read();
-                    if (done) {
-                        break;
-                    }
-                    const chunk = decoder.decode(value, { stream: true });
-                    buffer += chunk;
-                    // Try to find complete JSON objects in the buffer
-                    // The streaming response format is an array of JSON objects: [{...},{...}]
-                    let startIdx = 0;
+                try {
                     while (true) {
-                        // Find the start of a JSON object
-                        const objStart = buffer.indexOf('{', startIdx);
-                        if (objStart === -1)
+                        const { done, value } = yield reader.read();
+                        if (done) {
                             break;
-                        // Try to find the matching closing brace
-                        let braceCount = 0;
-                        let inString = false;
-                        let escapeNext = false;
-                        let objEnd = -1;
-                        for (let i = objStart; i < buffer.length; i++) {
-                            const char = buffer[i];
-                            if (escapeNext) {
-                                escapeNext = false;
-                                continue;
-                            }
-                            if (char === '\\') {
-                                escapeNext = true;
-                                continue;
-                            }
-                            if (char === '"') {
-                                inString = !inString;
-                                continue;
-                            }
-                            if (!inString) {
-                                if (char === '{')
-                                    braceCount++;
-                                else if (char === '}') {
-                                    braceCount--;
-                                    if (braceCount === 0) {
-                                        objEnd = i;
-                                        break;
-                                    }
-                                }
-                            }
                         }
-                        if (objEnd !== -1) {
-                            // We found a complete JSON object
-                            const jsonStr = buffer.substring(objStart, objEnd + 1);
-                            try {
-                                const data = JSON.parse(jsonStr);
-                                // Extract text from the response
-                                if (data.candidates && ((_c = (_b = data.candidates[0]) === null || _b === void 0 ? void 0 : _b.content) === null || _c === void 0 ? void 0 : _c.parts)) {
-                                    const text = ((_d = data.candidates[0].content.parts[0]) === null || _d === void 0 ? void 0 : _d.text) || '';
-                                    if (text) {
-                                        fullResponse += text;
-                                        onChunk(text);
-                                        this.logger.logDebug('Received chunk from Gemini', 'sendMessage', {
-                                            chunkLength: text.length,
-                                            totalLength: fullResponse.length
-                                        });
-                                        // Log streaming progress periodically
-                                        if (fullResponse.length % 500 < text.length) {
-                                            console.log(`📦 Streaming progress: ${fullResponse.length} characters received...`);
+                        const chunk = decoder.decode(value, { stream: true });
+                        buffer += chunk;
+                        // Try to find complete JSON objects in the buffer
+                        // The streaming response format is an array of JSON objects: [{...},{...}]
+                        let startIdx = 0;
+                        while (true) {
+                            // Find the start of a JSON object
+                            const objStart = buffer.indexOf('{', startIdx);
+                            if (objStart === -1)
+                                break;
+                            // Try to find the matching closing brace
+                            let braceCount = 0;
+                            let inString = false;
+                            let escapeNext = false;
+                            let objEnd = -1;
+                            for (let i = objStart; i < buffer.length; i++) {
+                                const char = buffer[i];
+                                if (escapeNext) {
+                                    escapeNext = false;
+                                    continue;
+                                }
+                                if (char === '\\') {
+                                    escapeNext = true;
+                                    continue;
+                                }
+                                if (char === '"') {
+                                    inString = !inString;
+                                    continue;
+                                }
+                                if (!inString) {
+                                    if (char === '{')
+                                        braceCount++;
+                                    else if (char === '}') {
+                                        braceCount--;
+                                        if (braceCount === 0) {
+                                            objEnd = i;
+                                            break;
                                         }
                                     }
                                 }
                             }
-                            catch (parseError) {
-                                this.logger.logDebug('Failed to parse JSON object', 'sendMessage', {
-                                    error: String(parseError),
-                                    jsonLength: jsonStr.length
-                                });
+                            if (objEnd !== -1) {
+                                // We found a complete JSON object
+                                const jsonStr = buffer.substring(objStart, objEnd + 1);
+                                try {
+                                    const data = JSON.parse(jsonStr);
+                                    // Extract text from the response
+                                    if (data.candidates && ((_c = (_b = data.candidates[0]) === null || _b === void 0 ? void 0 : _b.content) === null || _c === void 0 ? void 0 : _c.parts)) {
+                                        const text = ((_d = data.candidates[0].content.parts[0]) === null || _d === void 0 ? void 0 : _d.text) || '';
+                                        if (text) {
+                                            fullResponse += text;
+                                            onChunk(text);
+                                            this.logger.logDebug('Received chunk from Gemini', 'sendMessage', {
+                                                chunkLength: text.length,
+                                                totalLength: fullResponse.length
+                                            });
+                                            // Log streaming progress periodically
+                                            if (fullResponse.length % 500 < text.length) {
+                                                console.log(`📦 Streaming progress: ${fullResponse.length} characters received...`);
+                                            }
+                                        }
+                                    }
+                                }
+                                catch (parseError) {
+                                    this.logger.logDebug('Failed to parse JSON object', 'sendMessage', {
+                                        error: String(parseError),
+                                        jsonLength: jsonStr.length
+                                    });
+                                }
+                                // Move past this object
+                                startIdx = objEnd + 1;
                             }
-                            // Move past this object
-                            startIdx = objEnd + 1;
+                            else {
+                                // No complete object found, keep the rest in buffer
+                                buffer = buffer.substring(startIdx);
+                                break;
+                            }
                         }
-                        else {
-                            // No complete object found, keep the rest in buffer
+                        // If we've processed all complete objects, clear the processed part
+                        if (startIdx > 0 && startIdx < buffer.length) {
                             buffer = buffer.substring(startIdx);
-                            break;
+                        }
+                        else if (startIdx >= buffer.length) {
+                            buffer = '';
                         }
                     }
-                    // If we've processed all complete objects, clear the processed part
-                    if (startIdx > 0 && startIdx < buffer.length) {
-                        buffer = buffer.substring(startIdx);
-                    }
-                    else if (startIdx >= buffer.length) {
-                        buffer = '';
-                    }
+                }
+                catch (streamError) {
+                    throw this.errorFactory.createNodeEditorError('Failed to read streaming response', 'GEMINI_STREAM_ERROR', 'Error reading AI response stream.', 'sendMessage', { error: String(streamError) });
                 }
                 const executionTime = performance.now() - startTime;
                 this.logger.logPerformance('sendMessage', 'api_request', executionTime);
@@ -215,10 +227,14 @@ export class GeminiService {
             }
             catch (error) {
                 this.logger.logError(error, 'sendMessage');
-                if (error instanceof Error && error.name.includes('Error')) {
+                // If it's already one of our custom errors, re-throw it
+                if (error instanceof Error && (error.message.includes('API_KEY_MISSING') ||
+                    error.message.includes('GEMINI_API_ERROR') ||
+                    error.message.includes('GEMINI_STREAM_ERROR'))) {
                     throw error;
                 }
-                throw this.errorFactory.createNodeEditorError('Failed to communicate with Gemini API', 'API_COMMUNICATION_FAILED', 'Unable to get AI response. Please check your connection and try again.', 'sendMessage', { error: String(error) });
+                // For other errors (network, etc.), wrap them
+                throw this.errorFactory.createNodeEditorError('Failed to communicate with Gemini API', 'GEMINI_CONNECTION_ERROR', 'Unable to get AI response. Please check your connection and try again.', 'sendMessage', { error: String(error) });
             }
         });
     }
