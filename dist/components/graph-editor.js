@@ -170,6 +170,17 @@ export class GraphEditor {
             });
             // Zoom event handler
             this.canvas.addEventListener('wheel', (e) => {
+                // Check if the event target is inside a scrollable text element
+                const target = e.target;
+                const isInsideTextBlock = target.closest('textarea, input, [contenteditable="true"], .ql-editor');
+                if (isInsideTextBlock) {
+                    // Allow normal scrolling inside text blocks
+                    this.logger.logUserInteraction('text_block_scroll', target.tagName, {
+                        deltaY: e.deltaY,
+                        elementType: target.tagName.toLowerCase()
+                    });
+                    return; // Don't prevent default, allow normal scroll
+                }
                 e.preventDefault();
                 this.logger.logUserInteraction('canvas_wheel', this.canvas.id, {
                     deltaY: e.deltaY,
