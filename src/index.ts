@@ -293,16 +293,7 @@ function setupGlobalEventHandlers(
           className: target.className
         });
         
-        if (isButton && action === 'addMarkdown') {
-          const nodeId = target.getAttribute('data-node-id');
-          
-          logger.logUserInteraction('add_markdown_click', target.id || 'unnamed', { nodeId });
-          
-          if (nodeId) {
-            editor.addMarkdownBlock(nodeId);
-            logger.logInfo('Markdown block added via button', 'setupGlobalEventHandlers', { nodeId });
-          }
-        } else if (isButton && action === 'submitToLLM') {
+        if (isButton && action === 'submitToLLM') {
           const nodeId = target.getAttribute('data-node-id');
           
           logger.logUserInteraction('submit_to_llm_click', target.id || 'unnamed', { nodeId });

@@ -24,7 +24,9 @@ import { Validator } from '../utils/type-guards.js';
 import { ErrorFactory, NodeEditorError, TreeStructureError, ValidationError } from '../types/errors.js';
 import { calculateTreeLayout } from '../utils/tree-layout.js';
 import { geminiService } from '../services/gemini-service.js';
-import { LivePreviewManager } from '../services/live-preview-manager.js';
+// import { LivePreviewManager } from '../services/live-preview-manager.js'; // Legacy - keeping for backward compatibility
+import { PreviewToggleManager } from '../services/preview-toggle-manager.js';
+import { MarkdownProcessor } from '../utils/markdown.js';
 /**
  * Main graph editor class managing interactive node tree structure
  */
@@ -62,7 +64,8 @@ export class GraphEditor {
         this.logger = new Logger('GraphEditor');
         this.validator = new Validator('graph-editor-init');
         this.errorFactory = new ErrorFactory('graph-editor-init');
-        this.previewManager = new LivePreviewManager();
+        // this.previewManager = new LivePreviewManager(); // Legacy - replaced by previewToggleManager
+        this.previewToggleManager = new PreviewToggleManager(new MarkdownProcessor(), this.errorFactory);
         this.logger.logFunctionEntry('constructor', {
             canvasTagName: canvas === null || canvas === void 0 ? void 0 : canvas.tagName,
             contentTagName: canvasContent === null || canvasContent === void 0 ? void 0 : canvasContent.tagName,
@@ -449,10 +452,10 @@ export class GraphEditor {
                     });
                     // Check if the clicked element or its parent is a button
                     let buttonElement = null;
-                    if (target.classList.contains('btn') || target.classList.contains('btn-minimize') || target.classList.contains('btn-collapse') || target.classList.contains('btn-preview')) {
+                    if (target.classList.contains('btn') || target.classList.contains('btn-minimize') || target.classList.contains('btn-collapse') || target.classList.contains('btn-preview') || target.classList.contains('btn-preview-toggle') || target.classList.contains('btn-toggle-mode')) {
                         buttonElement = target;
                     }
-                    else if (target.parentElement && (target.parentElement.classList.contains('btn') || target.parentElement.classList.contains('btn-minimize') || target.parentElement.classList.contains('btn-collapse') || target.parentElement.classList.contains('btn-preview'))) {
+                    else if (target.parentElement && (target.parentElement.classList.contains('btn') || target.parentElement.classList.contains('btn-minimize') || target.parentElement.classList.contains('btn-collapse') || target.parentElement.classList.contains('btn-preview') || target.parentElement.classList.contains('btn-preview-toggle') || target.parentElement.classList.contains('btn-toggle-mode'))) {
                         buttonElement = target.parentElement;
                     }
                     const hasButtonClass = buttonElement !== null;
@@ -479,7 +482,11 @@ export class GraphEditor {
                             this.toggleNodeCollapse(nodeId);
                         }
                         else if (action === 'togglePreview' && blockId) {
-                            this.toggleMarkdownPreview(blockId);
+                            const mode = buttonElement.getAttribute('data-mode');
+                            this.handlePreviewToggle(blockId, mode);
+                        }
+                        else if (action === 'deleteBlock' && blockId && nodeId) {
+                            this.deleteBlock(nodeId, blockId);
                         }
                     }
                 }
@@ -542,23 +549,51 @@ export class GraphEditor {
             this.validator.validateNodeId(nodeId, 'renderBlock');
             // Generate a default title for the block
             const blockTitle = this.getBlockTitle(block, nodeId);
-            // Add preview button for markdown blocks
-            const previewButton = block.type === 'markdown' ? `
-        <button class="btn-preview" data-action="togglePreview" data-block-id="${block.id}" title="Toggle preview">
-          <span class="preview-icon">👁</span>
+            // Add preview toggle for previewable blocks (markdown and response)
+            const supportsPreview = block.type === 'markdown' || block.type === 'response';
+            const previewState = supportsPreview ? this.previewToggleManager.getBlockPreviewState(block.id) : null;
+            const previewToggleSection = supportsPreview ? `
+        <div class="block-content-toggle">
+          <button class="btn-toggle-mode ${(previewState === null || previewState === void 0 ? void 0 : previewState.displayMode) === 'raw' ? 'active' : ''}" 
+                  data-action="togglePreview" 
+                  data-block-id="${block.id}" 
+                  data-mode="raw"
+                  title="Show raw content">
+            Raw
+          </button>
+          <button class="btn-toggle-mode ${(previewState === null || previewState === void 0 ? void 0 : previewState.displayMode) === 'rendered' ? 'active' : ''}" 
+                  data-action="togglePreview" 
+                  data-block-id="${block.id}" 
+                  data-mode="rendered"
+                  title="Show rendered preview">
+            Preview
+          </button>
+        </div>
+      ` : '';
+            // Add delete button for markdown blocks
+            const deleteButtonSection = block.type === 'markdown' ? `
+        <button class="btn btn-delete-block" 
+                data-action="deleteBlock" 
+                data-node-id="${nodeId}"
+                data-block-id="${block.id}" 
+                title="Remove this markdown block">
+          ×
         </button>
       ` : '';
             const html = `
-        <div class="block ${block.type}-block" data-block-id="${block.id}" data-minimized="false">
+        <div class="block ${block.type}-block" data-block-id="${block.id}" data-minimized="false" data-preview-mode="${(previewState === null || previewState === void 0 ? void 0 : previewState.displayMode) || 'raw'}">
           <div class="block-header">
             <div class="block-header-left">
               <button class="btn-minimize" data-action="toggleBlock" data-block-id="${block.id}" title="Toggle minimize">
                 <span class="minimize-icon">▼</span>
               </button>
               <span class="block-title">${blockTitle}</span>
-              ${previewButton}
             </div>
-            <div class="block-type-badge">${block.type}</div>
+            <div class="block-header-right">
+              ${previewToggleSection}
+              ${deleteButtonSection}
+              <div class="block-type-badge">${block.type}</div>
+            </div>
           </div>
           <div class="block-content">
             <textarea 
@@ -828,6 +863,8 @@ export class GraphEditor {
                 this.validator.validateNodeBlock(newBlock, 'addMarkdownBlock');
                 node.blocks.push(newBlock);
                 this.logger.logVariableAssignment('addMarkdownBlock', 'blocksCount', node.blocks.length);
+                // Ensure all blocks are expanded (not minimized) when adding new markdown
+                this.ensureBlocksExpanded(nodeId);
                 this.rerenderNode(node);
                 this.logger.logInfo('Markdown block added successfully', 'addMarkdownBlock', {
                     nodeId,
@@ -848,6 +885,92 @@ export class GraphEditor {
                 throw error;
             }
             throw this.errorFactory.createNodeEditorError(`Failed to add markdown block to node ${nodeId}`, 'ADD_MARKDOWN_FAILED', 'Unable to add markdown content.', 'addMarkdownBlock', { nodeId, error: String(error) });
+        }
+    }
+    /**
+     * Ensure all blocks in a node are expanded (not minimized)
+     * This helps when adding new content to make sure everything is visible
+     *
+     * @param nodeId - ID of the node to expand blocks for
+     * @private
+     */
+    ensureBlocksExpanded(nodeId) {
+        this.logger.logFunctionEntry('ensureBlocksExpanded', { nodeId });
+        try {
+            // Find the node element in the DOM
+            const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+            if (nodeElement) {
+                // Find all block elements within this node
+                const blockElements = nodeElement.querySelectorAll('.block[data-minimized="true"]');
+                this.logger.logInfo('Expanding minimized blocks', 'ensureBlocksExpanded', {
+                    nodeId,
+                    minimizedBlockCount: blockElements.length
+                });
+                // Expand each minimized block
+                blockElements.forEach((blockElement) => {
+                    const blockId = blockElement.getAttribute('data-block-id');
+                    if (blockId) {
+                        this.expandBlock(blockId);
+                    }
+                });
+                // Also ensure the node itself is not collapsed
+                const nodeEl = nodeElement;
+                if (nodeEl.classList.contains('collapsed')) {
+                    const nodeId = nodeEl.getAttribute('data-node-id');
+                    if (nodeId) {
+                        this.expandNode(nodeId);
+                    }
+                }
+            }
+            this.logger.logFunctionExit('ensureBlocksExpanded', { nodeId });
+        }
+        catch (error) {
+            this.logger.logError(error, 'ensureBlocksExpanded', { nodeId });
+            // Don't throw - this is a helper method for improving UX
+        }
+    }
+    /**
+     * Expand a specific block (make it not minimized)
+     *
+     * @param blockId - ID of the block to expand
+     * @private
+     */
+    expandBlock(blockId) {
+        const blockElement = document.querySelector(`[data-block-id="${blockId}"]`);
+        if (blockElement) {
+            blockElement.setAttribute('data-minimized', 'false');
+            // Update the minimize button icon
+            const minimizeIcon = blockElement.querySelector('.minimize-icon');
+            if (minimizeIcon) {
+                minimizeIcon.textContent = '▼';
+            }
+            // Show the block content
+            const blockContent = blockElement.querySelector('.block-content');
+            if (blockContent) {
+                blockContent.style.display = 'block';
+            }
+        }
+    }
+    /**
+     * Expand a specific node (make it not collapsed)
+     *
+     * @param nodeId - ID of the node to expand
+     * @private
+     */
+    expandNode(nodeId) {
+        const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+        if (nodeElement) {
+            nodeElement.classList.remove('collapsed');
+            // Update the collapse button icon
+            const collapseIcon = nodeElement.querySelector('.collapse-icon');
+            if (collapseIcon) {
+                collapseIcon.textContent = '▼';
+            }
+            // Show the node blocks
+            const nodeBlocks = nodeElement.querySelector('.node-blocks');
+            if (nodeBlocks) {
+                nodeBlocks.style.display = 'block';
+            }
         }
     }
     /**
@@ -887,6 +1010,8 @@ export class GraphEditor {
                         responseContent += chunk;
                         this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
                     });
+                    // Response block completed - initialize preview mode
+                    yield this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
                     this.logger.logInfo('LLM submission completed successfully', 'submitToLLM', {
                         nodeId,
                         responseLength: responseContent.length
@@ -1995,6 +2120,8 @@ export class GraphEditor {
                 const newHeight = Math.max(150, startHeight + deltaY);
                 nodeEl.style.width = newWidth + 'px';
                 nodeEl.style.minHeight = newHeight + 'px';
+                // Scale blocks proportionally with node dimensions
+                this.scaleBlocksWithNode(nodeEl, newWidth, newHeight);
                 // Update connections as node size changes
                 this.updateConnections();
             };
@@ -2012,6 +2139,61 @@ export class GraphEditor {
         }
         catch (error) {
             this.logger.logError(error, 'setupNodeResizing', { nodeId: node.id });
+        }
+    }
+    /**
+     * Scale blocks proportionally with node dimensions
+     *
+     * @param nodeEl - The node element
+     * @param nodeWidth - New node width
+     * @param nodeHeight - New node height
+     * @private
+     */
+    scaleBlocksWithNode(nodeEl, nodeWidth, nodeHeight) {
+        try {
+            // Calculate scaling factors based on node dimensions
+            const baseWidth = 300; // Minimum node width
+            const baseHeight = 150; // Minimum node height
+            const baseBlockHeight = 120; // Default block height
+            // Scale factor based on node width (affects all blocks)
+            const widthScaleFactor = Math.max(1, nodeWidth / baseWidth);
+            // Scale factor based on node height (affects response blocks more)
+            const heightScaleFactor = Math.max(1, nodeHeight / baseHeight);
+            // Find all textareas and rendered content in this node
+            const textareas = nodeEl.querySelectorAll('textarea');
+            const renderedContents = nodeEl.querySelectorAll('.rendered-content');
+            textareas.forEach((textarea) => {
+                // Identify block type from parent element
+                const blockEl = textarea.closest('.block');
+                const isResponseBlock = blockEl === null || blockEl === void 0 ? void 0 : blockEl.classList.contains('response-block');
+                if (isResponseBlock) {
+                    // Response blocks scale more with height changes
+                    const scaledHeight = Math.max(60, Math.min(400, baseBlockHeight * Math.pow(heightScaleFactor, 0.6) * Math.pow(widthScaleFactor, 0.3)));
+                    textarea.style.height = scaledHeight + 'px';
+                }
+                else {
+                    // Other blocks scale primarily with width changes
+                    const scaledHeight = Math.max(60, Math.min(400, baseBlockHeight * Math.pow(widthScaleFactor, 0.4)));
+                    textarea.style.height = scaledHeight + 'px';
+                }
+            });
+            // Apply same scaling to rendered content for consistency
+            renderedContents.forEach((element) => {
+                const renderedContent = element;
+                const blockEl = renderedContent.closest('.block');
+                const isResponseBlock = blockEl === null || blockEl === void 0 ? void 0 : blockEl.classList.contains('response-block');
+                if (isResponseBlock) {
+                    const scaledHeight = Math.max(60, Math.min(400, baseBlockHeight * Math.pow(heightScaleFactor, 0.6) * Math.pow(widthScaleFactor, 0.3)));
+                    renderedContent.style.height = scaledHeight + 'px';
+                }
+                else {
+                    const scaledHeight = Math.max(60, Math.min(400, baseBlockHeight * Math.pow(widthScaleFactor, 0.4)));
+                    renderedContent.style.height = scaledHeight + 'px';
+                }
+            });
+        }
+        catch (error) {
+            this.logger.logError(error, 'scaleBlocksWithNode', { nodeWidth, nodeHeight });
         }
     }
     /**
@@ -2158,60 +2340,56 @@ export class GraphEditor {
         }
     }
     /**
-     * Toggle markdown preview for a block
-     *
-     * @param blockId - ID of the block to toggle preview
+     * Handle preview toggle for blocks supporting preview functionality
+     * @param blockId - ID of the block to toggle preview for
+     * @param mode - Specific mode to set (raw or rendered)
      * @private
      */
-    toggleMarkdownPreview(blockId) {
-        const startTime = performance.now();
-        this.logger.logFunctionEntry('toggleMarkdownPreview', { blockId });
-        try {
-            const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
-            if (!blockEl) {
-                this.logger.logWarn('Block element not found', 'toggleMarkdownPreview', { blockId });
-                return;
-            }
-            // Check if block is a markdown block
-            if (!blockEl.classList.contains('markdown-block')) {
-                this.logger.logWarn('Block is not a markdown block', 'toggleMarkdownPreview', { blockId });
-                return;
-            }
-            // Get current preview state
-            const previewState = this.previewManager.getPreviewState(blockId);
-            if (previewState) {
-                // Disable preview
-                this.previewManager.disablePreview(blockId);
-                this.logger.logInfo('Markdown preview disabled', 'toggleMarkdownPreview', { blockId });
-            }
-            else {
-                // Enable preview with split mode
-                this.previewManager.enablePreview(blockId, 'split');
-                // Set up textarea input handler for live preview
-                const textarea = blockEl.querySelector('textarea');
-                if (textarea) {
-                    const updateHandler = () => {
-                        this.previewManager.updatePreview(blockId, textarea.value);
-                    };
-                    textarea.addEventListener('input', updateHandler);
-                    // Store handler for cleanup
-                    textarea._markdownUpdateHandler = updateHandler;
+    handlePreviewToggle(blockId, mode) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const startTime = performance.now();
+            this.logger.logFunctionEntry('handlePreviewToggle', { blockId, mode });
+            try {
+                if (mode) {
+                    // Set specific mode
+                    yield this.previewToggleManager.setBlockPreviewMode(blockId, mode, 'button');
                 }
-                this.logger.logInfo('Markdown preview enabled', 'toggleMarkdownPreview', {
+                else {
+                    // Toggle mode
+                    yield this.previewToggleManager.toggleBlockPreview(blockId);
+                }
+                // Re-render the node to update the button state
+                const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+                if (blockEl) {
+                    const nodeEl = blockEl.closest('.node');
+                    if (nodeEl) {
+                        const nodeId = nodeEl.getAttribute('data-node-id');
+                        if (nodeId) {
+                            const node = this.nodes.get(nodeId);
+                            if (node) {
+                                this.renderNode(node);
+                            }
+                        }
+                    }
+                }
+                const executionTime = performance.now() - startTime;
+                this.logger.logPerformance('handlePreviewToggle', 'toggle_operation', executionTime);
+                this.logger.logFunctionExit('handlePreviewToggle', {
                     blockId,
-                    mode: 'split'
+                    executionTime
                 });
             }
-            const executionTime = performance.now() - startTime;
-            this.logger.logPerformance('toggleMarkdownPreview', 'toggle', executionTime);
-            this.logger.logFunctionExit('toggleMarkdownPreview', {
-                enabled: !previewState
-            }, executionTime);
-        }
-        catch (error) {
-            this.logger.logError(error, 'toggleMarkdownPreview', { blockId });
-        }
+            catch (error) {
+                const executionTime = performance.now() - startTime;
+                this.logger.logError(error, 'handlePreviewToggle', {
+                    blockId,
+                    executionTime
+                });
+                // Error is already logged, no need for additional user message
+            }
+        });
     }
+    // Removed handleResponseComplete method since auto-rendering is disabled
     /**
      * Center the canvas view on all nodes
      *
@@ -2361,20 +2539,86 @@ export class GraphEditor {
      * Delete a block from a node
      */
     deleteBlock(nodeId, blockId) {
+        this.logger.logFunctionEntry('deleteBlock', { nodeId, blockId });
         const node = this.nodes.get(nodeId);
         if (!node) {
+            this.logger.logError(new Error(`Node ${nodeId} not found`), 'deleteBlock', { nodeId, blockId });
             throw new Error(`Node ${nodeId} not found`);
         }
+        // Log all existing block IDs for debugging
+        const existingBlockIds = node.blocks.map(b => b.id);
+        this.logger.logInfo('Block deletion attempt', 'deleteBlock', {
+            nodeId,
+            blockId,
+            existingBlockIds,
+            blockCount: node.blocks.length
+        });
         const index = node.blocks.findIndex(b => b.id === blockId);
         if (index === -1) {
+            this.logger.logError(new Error(`Block ${blockId} not found`), 'deleteBlock', {
+                nodeId,
+                blockId,
+                existingBlockIds,
+                availableBlocks: node.blocks.map(b => ({ id: b.id, type: b.type }))
+            });
             throw new Error(`Block ${blockId} not found`);
         }
+        // Clean up preview state for the deleted block
+        this.previewToggleManager.cleanupDeletedBlocks([blockId]);
+        // Remove the block from DOM first (before updating data model)
+        this.removeBlockFromDOM(blockId);
+        // Then update the data model
         node.blocks.splice(index, 1);
         // Update positions
         node.blocks.forEach((block, i) => {
             block.position = i;
         });
-        this.renderNode(node);
+        // Update connections since node content changed
+        this.updateConnections();
+        this.logger.logFunctionExit('deleteBlock', {
+            nodeId,
+            blockId,
+            remainingBlocks: node.blocks.length
+        });
+    }
+    /**
+     * Remove a block from the DOM without full node re-rendering
+     * This provides in-place deletion for a better user experience
+     *
+     * @param blockId - ID of the block to remove from DOM
+     * @private
+     */
+    removeBlockFromDOM(blockId) {
+        this.logger.logFunctionEntry('removeBlockFromDOM', { blockId });
+        try {
+            // Find the block element in the DOM
+            const blockElement = document.querySelector(`[data-block-id="${blockId}"]`);
+            if (blockElement) {
+                this.logger.logInfo('Removing block element from DOM', 'removeBlockFromDOM', {
+                    blockId,
+                    elementFound: true
+                });
+                // Add a smooth removal animation
+                blockElement.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+                blockElement.style.opacity = '0';
+                blockElement.style.transform = 'translateX(-10px)';
+                // Remove the element after animation
+                setTimeout(() => {
+                    if (blockElement.parentNode) {
+                        blockElement.parentNode.removeChild(blockElement);
+                        this.logger.logInfo('Block element removed from DOM', 'removeBlockFromDOM', { blockId });
+                    }
+                }, 200);
+            }
+            else {
+                this.logger.logWarn('Block element not found in DOM', 'removeBlockFromDOM', { blockId });
+            }
+            this.logger.logFunctionExit('removeBlockFromDOM', { blockId });
+        }
+        catch (error) {
+            this.logger.logError(error, 'removeBlockFromDOM', { blockId });
+            // Don't throw - fallback to the data model update
+        }
     }
     /**
      * Pan the canvas

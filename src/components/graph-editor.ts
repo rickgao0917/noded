@@ -1096,6 +1096,9 @@ export class GraphEditor {
         node.blocks.push(newBlock);
         this.logger.logVariableAssignment('addMarkdownBlock', 'blocksCount', node.blocks.length);
         
+        // Ensure all blocks are expanded (not minimized) when adding new markdown
+        this.ensureBlocksExpanded(nodeId);
+        
         this.rerenderNode(node);
         
         this.logger.logInfo('Markdown block added successfully', 'addMarkdownBlock', {
@@ -1132,6 +1135,107 @@ export class GraphEditor {
         'addMarkdownBlock',
         { nodeId, error: String(error) }
       );
+    }
+  }
+
+  /**
+   * Ensure all blocks in a node are expanded (not minimized)
+   * This helps when adding new content to make sure everything is visible
+   * 
+   * @param nodeId - ID of the node to expand blocks for
+   * @private
+   */
+  private ensureBlocksExpanded(nodeId: string): void {
+    this.logger.logFunctionEntry('ensureBlocksExpanded', { nodeId });
+    
+    try {
+      // Find the node element in the DOM
+      const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`) as HTMLElement;
+      
+      if (nodeElement) {
+        // Find all block elements within this node
+        const blockElements = nodeElement.querySelectorAll('.block[data-minimized="true"]');
+        
+        this.logger.logInfo('Expanding minimized blocks', 'ensureBlocksExpanded', {
+          nodeId,
+          minimizedBlockCount: blockElements.length
+        });
+        
+        // Expand each minimized block
+        blockElements.forEach((blockElement: Element) => {
+          const blockId = blockElement.getAttribute('data-block-id');
+          if (blockId) {
+            this.expandBlock(blockId);
+          }
+        });
+        
+        // Also ensure the node itself is not collapsed
+        const nodeEl = nodeElement as HTMLElement;
+        if (nodeEl.classList.contains('collapsed')) {
+          const nodeId = nodeEl.getAttribute('data-node-id');
+          if (nodeId) {
+            this.expandNode(nodeId);
+          }
+        }
+      }
+      
+      this.logger.logFunctionExit('ensureBlocksExpanded', { nodeId });
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'ensureBlocksExpanded', { nodeId });
+      // Don't throw - this is a helper method for improving UX
+    }
+  }
+
+  /**
+   * Expand a specific block (make it not minimized)
+   * 
+   * @param blockId - ID of the block to expand
+   * @private
+   */
+  private expandBlock(blockId: string): void {
+    const blockElement = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement;
+    
+    if (blockElement) {
+      blockElement.setAttribute('data-minimized', 'false');
+      
+      // Update the minimize button icon
+      const minimizeIcon = blockElement.querySelector('.minimize-icon') as HTMLElement;
+      if (minimizeIcon) {
+        minimizeIcon.textContent = '▼';
+      }
+      
+      // Show the block content
+      const blockContent = blockElement.querySelector('.block-content') as HTMLElement;
+      if (blockContent) {
+        blockContent.style.display = 'block';
+      }
+    }
+  }
+
+  /**
+   * Expand a specific node (make it not collapsed)
+   * 
+   * @param nodeId - ID of the node to expand
+   * @private
+   */
+  private expandNode(nodeId: string): void {
+    const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`) as HTMLElement;
+    
+    if (nodeElement) {
+      nodeElement.classList.remove('collapsed');
+      
+      // Update the collapse button icon
+      const collapseIcon = nodeElement.querySelector('.collapse-icon') as HTMLElement;
+      if (collapseIcon) {
+        collapseIcon.textContent = '▼';
+      }
+      
+      // Show the node blocks
+      const nodeBlocks = nodeElement.querySelector('.node-blocks') as HTMLElement;
+      if (nodeBlocks) {
+        nodeBlocks.style.display = 'block';
+      }
     }
   }
 
@@ -3188,18 +3292,69 @@ export class GraphEditor {
     // Clean up preview state for the deleted block
     this.previewToggleManager.cleanupDeletedBlocks([blockId as any]);
     
+    // Remove the block from DOM first (before updating data model)
+    this.removeBlockFromDOM(blockId);
+    
+    // Then update the data model
     node.blocks.splice(index, 1);
     // Update positions
     node.blocks.forEach((block, i) => {
       (block as any).position = i;
     });
-    this.renderNode(node);
+    
+    // Update connections since node content changed
+    this.updateConnections();
     
     this.logger.logFunctionExit('deleteBlock', { 
       nodeId, 
       blockId, 
       remainingBlocks: node.blocks.length 
     });
+  }
+
+  /**
+   * Remove a block from the DOM without full node re-rendering
+   * This provides in-place deletion for a better user experience
+   * 
+   * @param blockId - ID of the block to remove from DOM
+   * @private
+   */
+  private removeBlockFromDOM(blockId: string): void {
+    this.logger.logFunctionEntry('removeBlockFromDOM', { blockId });
+    
+    try {
+      // Find the block element in the DOM
+      const blockElement = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement;
+      
+      if (blockElement) {
+        this.logger.logInfo('Removing block element from DOM', 'removeBlockFromDOM', { 
+          blockId,
+          elementFound: true 
+        });
+        
+        // Add a smooth removal animation
+        blockElement.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+        blockElement.style.opacity = '0';
+        blockElement.style.transform = 'translateX(-10px)';
+        
+        // Remove the element after animation
+        setTimeout(() => {
+          if (blockElement.parentNode) {
+            blockElement.parentNode.removeChild(blockElement);
+            this.logger.logInfo('Block element removed from DOM', 'removeBlockFromDOM', { blockId });
+          }
+        }, 200);
+        
+      } else {
+        this.logger.logWarn('Block element not found in DOM', 'removeBlockFromDOM', { blockId });
+      }
+      
+      this.logger.logFunctionExit('removeBlockFromDOM', { blockId });
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'removeBlockFromDOM', { blockId });
+      // Don't throw - fallback to the data model update
+    }
   }
 
   /**
