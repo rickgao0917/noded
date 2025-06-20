@@ -17,6 +17,7 @@ import { Validator } from '../utils/type-guards.js';
 import { ErrorFactory, NodeEditorError, TreeStructureError, ValidationError } from '../types/errors.js';
 import { calculateTreeLayout } from '../utils/tree-layout.js';
 import { geminiService } from '../services/gemini-service.js';
+import { LivePreviewManager } from '../services/live-preview-manager.js';
 
 /**
  * Main graph editor class managing interactive node tree structure
@@ -25,6 +26,7 @@ export class GraphEditor {
   private readonly logger: Logger;
   private readonly validator: Validator;
   private readonly errorFactory: ErrorFactory;
+  private readonly previewManager: LivePreviewManager;
   
   // Node dimension constants (accounting for CSS max-width + padding + border)
   private readonly NODE_WIDTH = 436;  // max-width (400) + padding (32) + border (4)
@@ -66,6 +68,7 @@ export class GraphEditor {
     this.logger = new Logger('GraphEditor');
     this.validator = new Validator('graph-editor-init');
     this.errorFactory = new ErrorFactory('graph-editor-init');
+    this.previewManager = new LivePreviewManager();
     
     this.logger.logFunctionEntry('constructor', {
       canvasTagName: canvas?.tagName,
@@ -568,9 +571,9 @@ export class GraphEditor {
 
           // Check if the clicked element or its parent is a button
           let buttonElement: HTMLElement | null = null;
-          if (target.classList.contains('btn') || target.classList.contains('btn-minimize') || target.classList.contains('btn-collapse')) {
+          if (target.classList.contains('btn') || target.classList.contains('btn-minimize') || target.classList.contains('btn-collapse') || target.classList.contains('btn-preview')) {
             buttonElement = target;
-          } else if (target.parentElement && (target.parentElement.classList.contains('btn') || target.parentElement.classList.contains('btn-minimize') || target.parentElement.classList.contains('btn-collapse'))) {
+          } else if (target.parentElement && (target.parentElement.classList.contains('btn') || target.parentElement.classList.contains('btn-minimize') || target.parentElement.classList.contains('btn-collapse') || target.parentElement.classList.contains('btn-preview'))) {
             buttonElement = target.parentElement;
           }
 
@@ -595,6 +598,8 @@ export class GraphEditor {
               this.toggleBlockMinimize(blockId);
             } else if (action === 'toggleNode' && nodeId) {
               this.toggleNodeCollapse(nodeId);
+            } else if (action === 'togglePreview' && blockId) {
+              this.toggleMarkdownPreview(blockId);
             }
           }
         } catch (error) {
@@ -672,6 +677,13 @@ export class GraphEditor {
       // Generate a default title for the block
       const blockTitle = this.getBlockTitle(block, nodeId);
       
+      // Add preview button for markdown blocks
+      const previewButton = block.type === 'markdown' ? `
+        <button class="btn-preview" data-action="togglePreview" data-block-id="${block.id}" title="Toggle preview">
+          <span class="preview-icon">👁</span>
+        </button>
+      ` : '';
+      
       const html = `
         <div class="block ${block.type}-block" data-block-id="${block.id}" data-minimized="false">
           <div class="block-header">
@@ -680,6 +692,7 @@ export class GraphEditor {
                 <span class="minimize-icon">▼</span>
               </button>
               <span class="block-title">${blockTitle}</span>
+              ${previewButton}
             </div>
             <div class="block-type-badge">${block.type}</div>
           </div>
@@ -2793,6 +2806,71 @@ export class GraphEditor {
 
     } catch (error) {
       this.logger.logError(error as Error, 'toggleBlockMinimize', { blockId });
+    }
+  }
+
+  /**
+   * Toggle markdown preview for a block
+   * 
+   * @param blockId - ID of the block to toggle preview
+   * @private
+   */
+  private toggleMarkdownPreview(blockId: string): void {
+    const startTime = performance.now();
+    this.logger.logFunctionEntry('toggleMarkdownPreview', { blockId });
+
+    try {
+      const blockEl = document.querySelector(`[data-block-id="${blockId}"]`) as HTMLElement;
+      
+      if (!blockEl) {
+        this.logger.logWarn('Block element not found', 'toggleMarkdownPreview', { blockId });
+        return;
+      }
+
+      // Check if block is a markdown block
+      if (!blockEl.classList.contains('markdown-block')) {
+        this.logger.logWarn('Block is not a markdown block', 'toggleMarkdownPreview', { blockId });
+        return;
+      }
+
+      // Get current preview state
+      const previewState = this.previewManager.getPreviewState(blockId as any);
+      
+      if (previewState) {
+        // Disable preview
+        this.previewManager.disablePreview(blockId as any);
+        this.logger.logInfo('Markdown preview disabled', 'toggleMarkdownPreview', { blockId });
+      } else {
+        // Enable preview with split mode
+        this.previewManager.enablePreview(blockId as any, 'split');
+        
+        // Set up textarea input handler for live preview
+        const textarea = blockEl.querySelector('textarea') as HTMLTextAreaElement;
+        if (textarea) {
+          const updateHandler = () => {
+            this.previewManager.updatePreview(blockId as any, textarea.value);
+          };
+          
+          textarea.addEventListener('input', updateHandler);
+          
+          // Store handler for cleanup
+          (textarea as any)._markdownUpdateHandler = updateHandler;
+        }
+        
+        this.logger.logInfo('Markdown preview enabled', 'toggleMarkdownPreview', { 
+          blockId,
+          mode: 'split' 
+        });
+      }
+
+      const executionTime = performance.now() - startTime;
+      this.logger.logPerformance('toggleMarkdownPreview', 'toggle', executionTime);
+      this.logger.logFunctionExit('toggleMarkdownPreview', { 
+        enabled: !previewState 
+      }, executionTime);
+
+    } catch (error) {
+      this.logger.logError(error as Error, 'toggleMarkdownPreview', { blockId });
     }
   }
 

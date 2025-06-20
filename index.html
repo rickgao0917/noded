@@ -301,6 +301,29 @@
             font-size: 10px;
         }
         
+        .btn-preview {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.2s ease;
+            font-size: 14px;
+        }
+        
+        .btn-preview:hover {
+            color: #4a9eff;
+        }
+        
+        .block.preview-active .btn-preview {
+            color: #4a9eff;
+        }
+        
         .block-title {
             color: #ddd;
             font-weight: normal;
@@ -514,7 +537,98 @@
             color: #ccc;
             max-width: 300px;
         }
+        
+        /* Markdown Preview Styles */
+        .markdown-preview {
+            background: #1e1e1e;
+            color: #e0e0e0;
+            padding: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+            overflow-y: auto;
+            min-height: 60px;
+            max-height: 400px;
+        }
+        
+        .markdown-preview h1, .markdown-preview h2, .markdown-preview h3,
+        .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 {
+            color: #fff;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .markdown-preview h1 { font-size: 24px; }
+        .markdown-preview h2 { font-size: 20px; }
+        .markdown-preview h3 { font-size: 18px; }
+        
+        .markdown-preview p { margin-bottom: 8px; }
+        .markdown-preview code { 
+            background: #2d2d2d; 
+            padding: 2px 4px; 
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .markdown-preview pre {
+            background: #2d2d2d;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+        
+        .markdown-preview blockquote {
+            border-left: 4px solid #4a9eff;
+            padding-left: 12px;
+            margin: 8px 0;
+            color: #b0b0b0;
+        }
+        
+        .markdown-preview table {
+            border-collapse: collapse;
+            margin: 12px 0;
+        }
+        
+        .markdown-preview th, .markdown-preview td {
+            border: 1px solid #404040;
+            padding: 8px;
+        }
+        
+        .markdown-preview th {
+            background: #2d2d2d;
+            font-weight: 600;
+        }
+        
+        /* Preview Mode Styles */
+        .block.preview-mode-split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        
+        .block.preview-mode-split .block-content {
+            display: contents;
+        }
+        
+        .block.preview-mode-split textarea {
+            grid-column: 1;
+        }
+        
+        .block.preview-mode-split .markdown-preview {
+            grid-column: 2;
+        }
     </style>
+    
+    <!-- Markdown Libraries -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
 </head>
 <body>
     <div class="editor-container">
