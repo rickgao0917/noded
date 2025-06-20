@@ -6,9 +6,9 @@
  * Constants for dimension limits
  */
 export const NODE_DIMENSION_CONSTANTS = {
-    MIN_WIDTH: 100,
-    MAX_WIDTH: 1200,
-    DEFAULT_WIDTH: 400,
+    MIN_WIDTH: 300,
+    MAX_WIDTH: 99999, // Effectively unlimited horizontal expansion
+    DEFAULT_WIDTH: 500, // Increased to ensure buttons fit
     MIN_HEIGHT: 100,
     MAX_HEIGHT: 1200,
     DEFAULT_HEIGHT: 400,

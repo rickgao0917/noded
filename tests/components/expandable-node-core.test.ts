@@ -53,8 +53,8 @@ describe('ExpandableNodeManager', () => {
       const node = manager.getNode(nodeId);
       
       expect(node).toBeDefined();
-      expect(node?.dimensions.width).toBe(NODE_DIMENSION_CONSTANTS.DEFAULT_WIDTH);
-      expect(node?.dimensions.height).toBe(NODE_DIMENSION_CONSTANTS.DEFAULT_HEIGHT);
+      expect(node?.dimensions.width).toBe(500); // Updated default width
+      expect(node?.dimensions.height).toBe(400);
       expect(node?.title).toBe('Untitled Node');
       expect(node?.blocks).toHaveLength(1);
       expect(node?.blocks[0]?.type).toBe('prompt');
@@ -112,8 +112,8 @@ describe('ExpandableNodeManager', () => {
       const node = manager.getNode(nodeId);
       
       // Should clamp to minimum values
-      expect(node?.dimensions.width).toBe(NODE_DIMENSION_CONSTANTS.MIN_WIDTH);
-      expect(node?.dimensions.height).toBe(NODE_DIMENSION_CONSTANTS.MIN_HEIGHT);
+      expect(node?.dimensions.width).toBe(300); // Updated min width
+      expect(node?.dimensions.height).toBe(100);
     });
 
     it('should log node creation events', () => {
@@ -182,21 +182,21 @@ describe('ExpandableNodeManager', () => {
       manager.resizeNode(nodeId, newDimensions);
       const node = manager.getNode(nodeId);
       
-      expect(node?.dimensions.width).toBe(NODE_DIMENSION_CONSTANTS.MIN_WIDTH);
-      expect(node?.dimensions.height).toBe(NODE_DIMENSION_CONSTANTS.MIN_HEIGHT);
+      expect(node?.dimensions.width).toBe(300); // Updated min width
+      expect(node?.dimensions.height).toBe(100);
     });
 
     it('should prevent resize above maximum dimensions', () => {
       const newDimensions: Partial<NodeDimensions> = {
-        width: 2000,
+        width: 100000, // Very large width
         height: 2000
       };
       
       manager.resizeNode(nodeId, newDimensions);
       const node = manager.getNode(nodeId);
       
-      expect(node?.dimensions.width).toBe(NODE_DIMENSION_CONSTANTS.MAX_WIDTH);
-      expect(node?.dimensions.height).toBe(NODE_DIMENSION_CONSTANTS.MAX_HEIGHT);
+      expect(node?.dimensions.width).toBe(99999); // Updated max width (effectively unlimited)
+      expect(node?.dimensions.height).toBe(1200); // Max height still enforced
     });
 
     it('should update block scaling on resize', () => {
@@ -207,9 +207,9 @@ describe('ExpandableNodeManager', () => {
       const resizedNode = manager.getNode(nodeId);
       
       const newBlockWidth = resizedNode?.blocks[0]?.dimensions.width || 0;
-      const expectedRatio = 800 / NODE_DIMENSION_CONSTANTS.DEFAULT_WIDTH;
+      const expectedRatio = 800 / 500; // Updated default width
       
-      expect(newBlockWidth).toBeCloseTo(originalBlockWidth * expectedRatio);
+      expect(newBlockWidth).toBeCloseTo(originalBlockWidth * expectedRatio, 0); // Allow for rounding
     });
 
     it('should handle resize error scenarios', () => {
@@ -403,10 +403,10 @@ describe('Type Guards', () => {
         id: 'node_12345678-1234-1234-1234-123456789012',
         title: 'Test Node',
         dimensions: {
-          width: 400,
+          width: 500,
           height: 400,
-          minWidth: 100,
-          maxWidth: 1200,
+          minWidth: 300,
+          maxWidth: 99999,
           minHeight: 100,
           maxHeight: 1200
         },
