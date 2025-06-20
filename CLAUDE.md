@@ -350,7 +350,7 @@ tests/
 
 **Recent Test Updates (2025-06-19):**
 - **Test Suite Cleanup**: Removed 12 problematic Logger additional tests that were causing Jest environment complexity issues with window object access
-- **100% Test Pass Rate**: All 252 tests now passing with zero failures across 10 test suites
+- **100% Test Pass Rate**: All 331 tests now passing with zero failures across 14 test suites
 - **Stable CI/CD**: Test suite is now fully reliable for continuous integration processes
 - **Coverage Flag Implementation**: Added optional coverage collection that defaults to off to prevent CI blocking
 - **Comprehensive Test Coverage**: All major utilities maintain high test coverage:
@@ -361,7 +361,16 @@ tests/
   - quill-manager.ts: 38.97% coverage
   - gemini-service.ts: Full streaming API test coverage
   - logger.ts: Comprehensive logging scenarios with core functionality tests
+  - preview-toggle-manager.ts: 29/29 tests passing with comprehensive functionality coverage
 - **Test Organization**: Clean separation of working tests from problematic environment-dependent tests
+
+**Latest Updates (2025-06-20):**
+- **Enhanced Preview Toggle System**: Comprehensive preview/raw mode switching for markdown and response blocks
+- **Mouse Wheel Scroll Support**: Preview blocks now intercept mouse wheel events to scroll content instead of zooming canvas
+- **Improved Block Management**: Fixed duplicate markdown block creation and added in-place block deletion without node cloning
+- **Node Scaling**: Response blocks now scale proportionally with node dimensions (both width and height)
+- **Auto-Preview for Responses**: LLM-generated responses default to preview mode for immediate markdown rendering
+- **Consistent Block Sizing**: Blocks maintain consistent dimensions when switching between raw and preview modes
 
 ## Enhanced Features and Improvements
 
@@ -374,9 +383,14 @@ tests/
 - **Real-time Updates**: Connection lines update during node operations
 
 **Improved Block Functionality:**
-- **Block Minimizing**: Individual blocks can be collapsed with content preview
-- **Block Resizing**: Textarea height adjustment (60-400px) with drag handles
-- **Dynamic Headers**: Content-aware headers showing block type and preview
+- **Preview Toggle System**: Raw/Preview mode switching for markdown and response blocks with "Raw" and "Preview" buttons
+- **Mouse Wheel Scroll**: Preview blocks intercept mouse wheel events to scroll content instead of zooming canvas
+- **Block Minimizing**: Individual blocks can be collapsed with content preview in both raw and preview modes
+- **Block Resizing**: Textarea height adjustment (60-400px) with drag handles and proportional scaling with node dimensions
+- **In-Place Deletion**: Markdown blocks removed with smooth animation without node cloning or duplication
+- **Auto-Preview Responses**: LLM-generated responses automatically display in preview mode for immediate markdown rendering
+- **Consistent Sizing**: Blocks maintain dimensions when switching between raw and preview modes
+- **Dynamic Headers**: Content-aware headers showing block type with integrated toggle controls
 - **Centralized Controls**: Unified button placement for consistent UX
 
 **Advanced Canvas Features:**
@@ -586,6 +600,182 @@ docker-compose down          # Stop and remove
 docker-compose restart       # Restart service
 docker exec -it noded-app sh # Access container shell
 ```
+
+## File Structure and Component Breakdown
+
+This section provides a comprehensive overview of all files, their purposes, and key functions for easy navigation and understanding.
+
+### Core Application Files
+
+**`src/index.ts`** - Application Entry Point
+- Initializes the GraphEditor with DOM elements
+- Sets up global event handlers for control buttons (zoom, export, etc.)
+- Handles textarea change events for block content updates
+- Manages LLM submission events via global delegation
+- Sets up comprehensive error handling and logging
+
+**`index.html`** - Main Application Interface
+- Complete CSS styling for nodes, blocks, and UI components
+- Canvas and control elements (zoom, auto-layout, export buttons)
+- Markdown rendering styles and preview mode CSS
+- Loads external libraries (marked.js, highlight.js, KaTeX, mermaid)
+- Modular version requiring HTTP server
+
+**`standalone.html`** - Self-Contained Version
+- All JavaScript code embedded inline for direct browser access
+- No server requirements, can be opened directly in browser
+- Complete feature set with inlined dependencies
+
+### Core Components
+
+**`src/components/graph-editor.ts`** - Main Graph Editor (3400+ lines)
+- **Primary class**: `GraphEditor` - manages the entire node editor system
+- **Key methods**:
+  - `addRootNode()` - Creates new root nodes in the graph
+  - `addChild(nodeId)` - Adds child nodes to create tree structure
+  - `addMarkdownBlock(nodeId)` - Adds markdown blocks to nodes
+  - `deleteBlock(nodeId, blockId)` - In-place block deletion without node cloning
+  - `submitToLLM(nodeId)` - Gemini API integration with streaming responses
+  - `renderNode(node)` - Complete DOM rendering for individual nodes
+  - `renderBlock(block, nodeId, blockIndex)` - Renders individual blocks within nodes
+  - `autoLayout()` - Intelligent tree layout with collision detection
+  - `scaleBlocksWithNode()` - Proportional block scaling with node dimensions
+  - `setupNodeResizing()` - Drag handles for node width/height adjustment
+  - `setupBlockResizing()` - Individual block height adjustment
+  - `toggleBlockMinimize()` - Block collapse/expand functionality
+  - `toggleNodeCollapse()` - Node-level collapse/expand
+  - `updateConnections()` - SVG connection line rendering between parent/child nodes
+  - `handlePreviewToggle()` - Switch between raw and preview modes
+
+### Services
+
+**`src/services/gemini-service.ts`** - AI Integration Service
+- **Primary class**: `GeminiService` - handles all LLM communication
+- **Key methods**:
+  - `generateContent(prompt)` - Streaming content generation
+  - `handleStreamResponse()` - Real-time response processing
+  - Comprehensive error handling and retry logic
+  - Performance tracking and response time monitoring
+
+**`src/services/preview-toggle-manager.ts`** - Preview Mode Management
+- **Primary class**: `PreviewToggleManager` - manages raw/preview mode switching
+- **Key methods**:
+  - `toggleBlockPreview(blockId)` - Switch between raw and rendered modes
+  - `setBlockPreviewMode(blockId, mode)` - Direct mode setting
+  - `setupHoverScrolling(container)` - Mouse wheel scroll interception for preview blocks
+  - `initializeResponseBlockPreview(blockId)` - Auto-preview for LLM responses
+  - `showRenderedContent()` - Markdown rendering and display
+  - `showRawContent()` - Switch back to textarea mode
+  - Height preservation during mode switches for consistent sizing
+
+### Utilities
+
+**`src/utils/logger.ts`** - Comprehensive Logging System
+- **Primary class**: `Logger` - structured JSON logging for browser console
+- **Features**: Six log levels, correlation IDs, performance metrics, user interaction tracking
+- **Methods**: `logFunctionEntry()`, `logFunctionExit()`, `logError()`, `logPerformance()`
+
+**`src/utils/type-guards.ts`** - Runtime Validation
+- **Primary class**: `Validator` - runtime type checking and validation
+- **Functions**: `validateGraphNode()`, `validateNodeBlock()`, `validateDOMElement()`
+- Tree integrity validation and cycle detection
+
+**`src/utils/tree-layout.ts`** - Tree Positioning Algorithm
+- **Primary function**: `calculateTreeLayout(nodes)` - positions nodes in tree structure
+- Calculates subtree widths and optimal spacing
+- Handles multiple root nodes and prevents overlapping
+
+**`src/utils/markdown.ts`** - Markdown Processing
+- **Primary class**: `MarkdownProcessor` - converts markdown to HTML
+- Integration with marked.js, highlight.js, and KaTeX
+- Security sanitization with DOMPurify
+
+**`src/utils/debug-helper.ts`** - Runtime Debug Control
+- **Global object**: `window.debug` - browser console debug commands
+- **Methods**: `enable()`, `disable()`, `verbose()`, `showOnly()`, `hideFunction()`
+- Runtime configuration for logging levels and service filtering
+
+### Type Definitions
+
+**`src/types/graph.types.ts`** - Core Data Structures
+- **Interfaces**: `GraphNode`, `NodeBlock`, `Position`
+- **Types**: Block types (prompt, response, markdown)
+- Tree relationship definitions
+
+**`src/types/preview.types.ts`** - Preview System Types
+- **Interfaces**: `BlockPreviewState`, `PreviewConfig`, `PreviewToggleEvent`
+- **Types**: `PreviewDisplayMode` (raw/rendered), `PreviewToggleTrigger`
+- **Constants**: `DEFAULT_PREVIEW_CONFIG`, `PREVIEW_CONSTANTS`
+
+**`src/types/branded.types.ts`** - Type-Safe Identifiers
+- **Branded types**: `NodeId`, `BlockId`, `CorrelationId`, `SessionId`
+- Prevents string confusion and improves type safety
+
+**`src/types/errors.ts`** - Error Handling System
+- **Classes**: `BaseError`, `NodeEditorError`, `DOMError`, `ValidationError`, `TreeStructureError`
+- **Class**: `ErrorFactory` - creates user-friendly error messages
+- Structured error context and correlation ID support
+
+### Configuration
+
+**`config/config.js`** - Runtime Configuration (git-ignored)
+- Gemini API key configuration
+- Debug settings and logging levels
+- Must be created from `config/config.example.js`
+
+**`config/config.example.js`** - Configuration Template
+- Example configuration with all available options
+- Debug configuration examples
+- API key setup instructions
+
+### Testing
+
+**`tests/`** - Comprehensive Test Suite (331 tests)
+- **`tests/components/`** - Component tests (GraphEditor, node resizing, etc.)
+- **`tests/services/`** - Service tests (Gemini API, preview toggle manager)
+- **`tests/utils/`** - Utility tests (logger, tree layout, type guards, markdown)
+- **`tests/integration/`** - API endpoint integration tests
+- **`tests/performance/`** - Performance and load testing
+- **`tests/setup.ts`** - Jest test environment configuration
+
+### Documentation
+
+**`docs/API_SETUP.md`** - API Configuration Guide
+- Step-by-step Gemini API key setup
+- Security best practices
+- Configuration examples
+
+**`docs/DEBUG_CONFIG.md`** - Debug Configuration Guide
+- Runtime debug control documentation
+- Log filtering and service configuration
+- Browser console command reference
+
+### Build and Deployment
+
+**`package.json`** - NPM Configuration
+- All build scripts and dependencies
+- Testing commands and coverage configuration
+- Development and production dependencies
+
+**`tsconfig.json`** - TypeScript Configuration
+- Strict mode compliance with zero `any` types
+- ES2020 target with module resolution
+- Comprehensive compiler options for type safety
+
+**`jest.config.js`** - Testing Configuration
+- Coverage targets: 80% global, 100% utilities
+- JSDOM environment for DOM testing
+- Module resolution and path mapping
+
+**`Dockerfile` & `docker-compose.yml`** - Container Deployment
+- Multi-stage build for optimized production images
+- Python HTTP server for static file serving
+- Port mapping and volume configuration
+
+**`.eslintrc.js`** - Code Quality Configuration
+- TypeScript parser with strict rules
+- Naming convention enforcement
+- Zero warnings tolerance
 
 ### Development Notes
 

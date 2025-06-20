@@ -20,7 +20,7 @@ export class GeminiService {
       this.apiKey = apiKey;
     } else {
       // Try to get API key from environment variable (works in Node.js/build time)
-      const envApiKey = typeof process !== 'undefined' && process.env?.GEMINI_API_KEY;
+      const envApiKey = false; // Disabled for browser environment
       
       // In browser environment, check for configuration object with safe access
       const configApiKey = typeof window !== 'undefined' && 

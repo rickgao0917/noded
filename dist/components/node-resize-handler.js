@@ -2,9 +2,9 @@
  * Node resize handler for expandable nodes
  * Manages resize operations with throttling and constraints
  */
-import { NODE_DIMENSION_CONSTANTS } from '../types/expandable-node.types';
-import { ResizeSetupError, ResizeHandlerError, ScalingUpdateError } from '../types/expandable-node-errors';
-import { snapToGrid } from '../utils/expandable-node-guards';
+import { NODE_DIMENSION_CONSTANTS } from '../types/expandable-node.types.js';
+import { ResizeSetupError, ResizeHandlerError, ScalingUpdateError } from '../types/expandable-node-errors.js';
+import { snapToGrid } from '../utils/expandable-node-guards.js';
 /**
  * Handles node resizing with performance optimization
  */

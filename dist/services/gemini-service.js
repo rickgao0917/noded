@@ -15,7 +15,7 @@ import { ErrorFactory } from '../types/errors.js';
  */
 export class GeminiService {
     constructor(apiKey, logger, errorFactory) {
-        var _a, _b;
+        var _a;
         this.apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent';
         this.logger = logger || new Logger('GeminiService');
         this.errorFactory = errorFactory || new ErrorFactory('gemini-service');
@@ -25,10 +25,10 @@ export class GeminiService {
         }
         else {
             // Try to get API key from environment variable (works in Node.js/build time)
-            const envApiKey = typeof process !== 'undefined' && ((_a = process.env) === null || _a === void 0 ? void 0 : _a.GEMINI_API_KEY);
+            const envApiKey = false; // Disabled for browser environment
             // In browser environment, check for configuration object with safe access
             const configApiKey = typeof window !== 'undefined' &&
-                ((_b = window === null || window === void 0 ? void 0 : window.NODE_EDITOR_CONFIG) === null || _b === void 0 ? void 0 : _b.GEMINI_API_KEY);
+                ((_a = window === null || window === void 0 ? void 0 : window.NODE_EDITOR_CONFIG) === null || _a === void 0 ? void 0 : _a.GEMINI_API_KEY);
             // Use environment variable first, then config object
             this.apiKey = envApiKey || configApiKey || '';
         }

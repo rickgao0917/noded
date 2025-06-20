@@ -2,7 +2,7 @@
  * Custom error classes for expandable node system
  * Provides detailed error information for node operations
  */
-import { NodeEditorError } from './errors';
+import { NodeEditorError } from './errors.js';
 /**
  * Creates error context for node operations
  */

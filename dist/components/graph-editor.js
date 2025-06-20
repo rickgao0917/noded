@@ -32,6 +32,14 @@ import { MarkdownProcessor } from '../utils/markdown.js';
  */
 export class GraphEditor {
     /**
+     * Set the chat interface for double-click handling
+     *
+     * @param chatInterface - The chat interface instance
+     */
+    setChatInterface(chatInterface) {
+        this.chatInterface = chatInterface;
+    }
+    /**
      * Initialize graph editor with DOM elements
      *
      * @param canvas - Main canvas element for background interactions
@@ -51,6 +59,7 @@ export class GraphEditor {
         // Chat states and loading states are managed internally by components
         // private chatStates: Map<string, any> = new Map();
         // private loadingStates: Map<string, any> = new Map();
+        this.chatContinuationStates = new Map();
         this.selectedNode = null;
         this.nodeCounter = 0;
         this.scale = 1;
@@ -60,6 +69,14 @@ export class GraphEditor {
         this.isDragging = false;
         this.lastPanX = 0;
         this.lastPanY = 0;
+        this.chatConfig = {
+            maxLength: 2000,
+            debounceMs: 300,
+            autoExpandOnFocus: true,
+            compactPlaceholder: 'Continue the conversation...',
+            expandedPlaceholder: 'Type your follow-up question or request here...'
+        };
+        this.chatInterface = null; // Will be set after construction
         const startTime = performance.now();
         this.logger = new Logger('GraphEditor');
         this.validator = new Validator('graph-editor-init');
@@ -173,6 +190,8 @@ export class GraphEditor {
                 this.logger.logVariableAssignment('setupEventListeners', 'isPanning', false);
                 this.logger.logVariableAssignment('setupEventListeners', 'isDragging', false);
             });
+            // Double-click event handler for opening chat (handled at node level now)
+            // Kept for backward compatibility but nodes handle their own double-clicks
             // Zoom event handler
             this.canvas.addEventListener('wheel', (e) => {
                 // Check if the event target is inside a scrollable text element
@@ -310,6 +329,34 @@ export class GraphEditor {
         }
     }
     /**
+     * Get a node by its ID
+     *
+     * @param nodeId - The ID of the node to retrieve
+     * @returns The node if found, undefined otherwise
+     */
+    getNode(nodeId) {
+        return this.nodes.get(nodeId);
+    }
+    /**
+     * Get the preview toggle manager instance
+     *
+     * @returns The preview toggle manager
+     */
+    getPreviewToggleManager() {
+        return this.previewToggleManager;
+    }
+    /**
+     * Force re-render of a specific node
+     *
+     * @param nodeId - The ID of the node to re-render
+     */
+    refreshNode(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (node) {
+            this.rerenderNode(node);
+        }
+    }
+    /**
      * Create a new graph node with validation and error handling
      *
      * @param parentId - ID of parent node, null for root nodes
@@ -438,7 +485,14 @@ export class GraphEditor {
           </div>
         </div>
         <div class="node-blocks">
-          ${node.blocks.map((block, index) => this.renderBlock(block, node.id, index)).join('')}
+          ${node.blocks.map((block, index) => {
+                let blockHtml = this.renderBlock(block, node.id, index);
+                // Add chat continuation after response blocks
+                if (block.type === 'response') {
+                    blockHtml += this.renderChatContinuation(node.id, block.id);
+                }
+                return blockHtml;
+            }).join('')}
         </div>
         <div class="node-resize-handle" data-action="resizeNode" data-node-id="${node.id}" title="Drag to resize">⋮⋮</div>
       `;
@@ -452,10 +506,10 @@ export class GraphEditor {
                     });
                     // Check if the clicked element or its parent is a button
                     let buttonElement = null;
-                    if (target.classList.contains('btn') || target.classList.contains('btn-minimize') || target.classList.contains('btn-collapse') || target.classList.contains('btn-preview') || target.classList.contains('btn-preview-toggle') || target.classList.contains('btn-toggle-mode')) {
+                    if (target.classList.contains('btn') || target.classList.contains('btn-minimize') || target.classList.contains('btn-collapse') || target.classList.contains('btn-preview') || target.classList.contains('btn-preview-toggle') || target.classList.contains('btn-toggle-mode') || target.classList.contains('btn-expand-chat') || target.classList.contains('submit-chat')) {
                         buttonElement = target;
                     }
-                    else if (target.parentElement && (target.parentElement.classList.contains('btn') || target.parentElement.classList.contains('btn-minimize') || target.parentElement.classList.contains('btn-collapse') || target.parentElement.classList.contains('btn-preview') || target.parentElement.classList.contains('btn-preview-toggle') || target.parentElement.classList.contains('btn-toggle-mode'))) {
+                    else if (target.parentElement && (target.parentElement.classList.contains('btn') || target.parentElement.classList.contains('btn-minimize') || target.parentElement.classList.contains('btn-collapse') || target.parentElement.classList.contains('btn-preview') || target.parentElement.classList.contains('btn-preview-toggle') || target.parentElement.classList.contains('btn-toggle-mode') || target.parentElement.classList.contains('btn-expand-chat') || target.parentElement.classList.contains('submit-chat'))) {
                         buttonElement = target.parentElement;
                     }
                     const hasButtonClass = buttonElement !== null;
@@ -488,10 +542,50 @@ export class GraphEditor {
                         else if (action === 'deleteBlock' && blockId && nodeId) {
                             this.deleteBlock(nodeId, blockId);
                         }
+                        else if (action === 'toggleChatExpand' && nodeId && blockId) {
+                            this.toggleChatExpansion(nodeId, blockId);
+                        }
+                        else if (action === 'submitChatContinuation' && nodeId && blockId) {
+                            this.submitChatContinuation(nodeId, blockId);
+                        }
                     }
                 }
                 catch (error) {
                     this.logger.logError(error, 'renderNode.onClick', { nodeId: node.id });
+                }
+            });
+            // Add double-click handler to open chat interface
+            nodeEl.addEventListener('dblclick', (e) => {
+                try {
+                    const target = e.target;
+                    // Don't trigger on buttons or interactive elements
+                    if (target.tagName === 'BUTTON' ||
+                        target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.closest('button') ||
+                        target.closest('input') ||
+                        target.closest('textarea') ||
+                        target.classList.contains('node-resize-handle') ||
+                        target.classList.contains('block-resize-handle')) {
+                        return;
+                    }
+                    this.logger.logUserInteraction('node_double_click', node.id, {
+                        targetClass: target.className,
+                        targetTag: target.tagName
+                    });
+                    // Open chat interface if available
+                    if (this.chatInterface) {
+                        this.logger.logInfo('opening_chat_for_node', 'renderNode.onDblClick', { nodeId: node.id });
+                        this.chatInterface.openChatForNode(node.id);
+                    }
+                    else {
+                        this.logger.logWarn('Chat interface not available', 'renderNode.onDblClick', { nodeId: node.id });
+                    }
+                    // Prevent text selection
+                    e.preventDefault();
+                }
+                catch (error) {
+                    this.logger.logError(error, 'renderNode.onDblClick', { nodeId: node.id });
                 }
             });
             this.setupNodeDragging(nodeEl, node);
@@ -619,6 +713,74 @@ export class GraphEditor {
                 blockIndex
             });
             throw this.errorFactory.createNodeEditorError(`Failed to render block ${block.id}`, 'BLOCK_RENDER_FAILED', 'Unable to display content block.', 'renderBlock', { blockId: block.id, nodeId, blockIndex });
+        }
+    }
+    /**
+     * Render chat continuation UI for a response block
+     *
+     * @param nodeId - The node ID containing the response block
+     * @param blockId - The response block ID
+     * @returns HTML string for chat continuation UI
+     * @private
+     */
+    renderChatContinuation(nodeId, blockId) {
+        this.logger.logFunctionEntry('renderChatContinuation', { nodeId, blockId });
+        try {
+            const stateKey = `${nodeId}_${blockId}`;
+            let state = this.chatContinuationStates.get(stateKey);
+            if (!state) {
+                state = {
+                    nodeId,
+                    isExpanded: false,
+                    isLoading: false,
+                    hasError: false,
+                    lastUpdated: Date.now()
+                };
+                this.chatContinuationStates.set(stateKey, state);
+            }
+            const html = `
+        <div class="chat-continuation" data-node-id="${nodeId}" data-block-id="${blockId}" data-expanded="${state.isExpanded}">
+          <div class="chat-continuation-header">
+            <button class="btn-expand-chat" data-action="toggleChatExpand" data-node-id="${nodeId}" data-block-id="${blockId}" title="Toggle chat input">
+              <span class="expand-icon">${state.isExpanded ? '▼' : '▶'}</span>
+              <span class="expand-text">${state.isExpanded ? 'Hide' : 'Continue'} conversation</span>
+            </button>
+          </div>
+          <div class="chat-continuation-content" style="display: ${state.isExpanded ? 'block' : 'none'}">
+            <div class="chat-input-wrapper">
+              <textarea 
+                class="chat-input"
+                placeholder="${state.isExpanded ? this.chatConfig.expandedPlaceholder : this.chatConfig.compactPlaceholder}"
+                maxlength="${this.chatConfig.maxLength}"
+                data-node-id="${nodeId}"
+                data-block-id="${blockId}"
+                ${state.isLoading ? 'disabled' : ''}
+              ></textarea>
+              <div class="chat-actions">
+                <button class="btn submit-chat" 
+                        data-action="submitChatContinuation" 
+                        data-node-id="${nodeId}" 
+                        data-block-id="${blockId}"
+                        ${state.isLoading ? 'disabled' : ''}>
+                  ${state.isLoading ? 'Sending...' : 'Send'}
+                </button>
+              </div>
+            </div>
+            ${state.hasError ? `
+              <div class="chat-error">
+                <span class="error-icon">⚠️</span>
+                <span class="error-message">${state.errorMessage || 'An error occurred'}</span>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+            this.logger.logFunctionExit('renderChatContinuation', { nodeId, blockId });
+            return html;
+        }
+        catch (error) {
+            this.logger.logError(error, 'renderChatContinuation', { nodeId, blockId });
+            return '';
         }
     }
     /**
@@ -801,6 +963,7 @@ export class GraphEditor {
      * Add a child node to an existing parent node
      *
      * @param parentId - ID of the parent node
+     * @returns The ID of the newly created child node
      * @throws {ValidationError} When parentId is invalid
      * @throws {TreeStructureError} When parent doesn't exist
      */
@@ -829,6 +992,7 @@ export class GraphEditor {
             const executionTime = performance.now() - startTime;
             this.logger.logPerformance('addChild', 'child_creation', executionTime);
             this.logger.logFunctionExit('addChild', { parentId, childId }, executionTime);
+            return childId;
         }
         catch (error) {
             this.logger.logError(error, 'addChild', { parentId });
@@ -857,7 +1021,7 @@ export class GraphEditor {
                 const newBlock = {
                     id: `${nodeId}_markdown_${Date.now()}`,
                     type: 'markdown',
-                    content: '# New markdown block\\n\\nAdd your content here...',
+                    content: '# New markdown block\n\nAdd your content here...',
                     position: node.blocks.length
                 };
                 this.validator.validateNodeBlock(newBlock, 'addMarkdownBlock');
@@ -2389,6 +2553,180 @@ export class GraphEditor {
             }
         });
     }
+    /**
+     * Toggle the expansion state of a chat continuation interface
+     *
+     * @param nodeId - ID of the node containing the chat
+     * @param blockId - ID of the response block
+     * @private
+     */
+    toggleChatExpansion(nodeId, blockId) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('toggleChatExpansion', { nodeId, blockId });
+        try {
+            const stateKey = `${nodeId}_${blockId}`;
+            const state = this.chatContinuationStates.get(stateKey);
+            if (!state) {
+                this.logger.logWarn('Chat continuation state not found', 'toggleChatExpansion', { nodeId, blockId });
+                return;
+            }
+            // Toggle expansion state
+            state.isExpanded = !state.isExpanded;
+            state.lastUpdated = Date.now();
+            // Update DOM
+            const chatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
+            if (chatEl) {
+                chatEl.setAttribute('data-expanded', String(state.isExpanded));
+                const expandIcon = chatEl.querySelector('.expand-icon');
+                const expandText = chatEl.querySelector('.expand-text');
+                const content = chatEl.querySelector('.chat-continuation-content');
+                if (expandIcon)
+                    expandIcon.textContent = state.isExpanded ? '▼' : '▶';
+                if (expandText)
+                    expandText.textContent = `${state.isExpanded ? 'Hide' : 'Continue'} conversation`;
+                if (content)
+                    content.style.display = state.isExpanded ? 'block' : 'none';
+                // Focus textarea if expanding
+                if (state.isExpanded) {
+                    const textarea = content.querySelector('.chat-input');
+                    if (textarea) {
+                        setTimeout(() => textarea.focus(), 100);
+                    }
+                }
+            }
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('toggleChatExpansion', 'toggle', executionTime);
+            this.logger.logFunctionExit('toggleChatExpansion', { nodeId, blockId, expanded: state.isExpanded }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'toggleChatExpansion', { nodeId, blockId });
+        }
+    }
+    /**
+     * Submit a chat continuation to the LLM
+     *
+     * @param nodeId - ID of the node containing the chat
+     * @param blockId - ID of the response block
+     * @private
+     */
+    submitChatContinuation(nodeId, blockId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const startTime = performance.now();
+            this.logger.logFunctionEntry('submitChatContinuation', { nodeId, blockId });
+            try {
+                const stateKey = `${nodeId}_${blockId}`;
+                const state = this.chatContinuationStates.get(stateKey);
+                if (!state) {
+                    this.logger.logWarn('Chat continuation state not found', 'submitChatContinuation', { nodeId, blockId });
+                    return;
+                }
+                // Get chat input
+                const chatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
+                const textarea = chatEl === null || chatEl === void 0 ? void 0 : chatEl.querySelector('.chat-input');
+                if (!textarea || !textarea.value.trim()) {
+                    this.logger.logWarn('No chat input provided', 'submitChatContinuation', { nodeId, blockId });
+                    return;
+                }
+                const chatInput = textarea.value.trim();
+                // Update state to loading
+                state.isLoading = true;
+                state.hasError = false;
+                delete state.errorMessage;
+                state.lastUpdated = Date.now();
+                // Update UI
+                const submitBtn = chatEl.querySelector('.submit-chat');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Sending...';
+                }
+                textarea.disabled = true;
+                try {
+                    // Get the full conversation context
+                    const node = this.nodes.get(nodeId);
+                    if (!node) {
+                        throw new Error(`Node ${nodeId} not found`);
+                    }
+                    // Build conversation history
+                    let conversationContext = '';
+                    for (const block of node.blocks) {
+                        if (block.type === 'prompt') {
+                            conversationContext += `User: ${block.content}\n\n`;
+                        }
+                        else if (block.type === 'response') {
+                            conversationContext += `Assistant: ${block.content}\n\n`;
+                        }
+                    }
+                    // Add the new chat input
+                    conversationContext += `User: ${chatInput}`;
+                    // Create a new response block
+                    const responseBlockId = this.createResponseBlock(nodeId, '');
+                    // Submit to Gemini with streaming
+                    let responseContent = '';
+                    yield geminiService.sendMessage(conversationContext, (chunk) => {
+                        responseContent += chunk;
+                        this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
+                    });
+                    // Initialize preview mode for the new response
+                    yield this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
+                    // Clear the chat input and collapse
+                    textarea.value = '';
+                    state.isExpanded = false;
+                    state.isLoading = false;
+                    // Update UI
+                    const newChatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
+                    if (newChatEl) {
+                        newChatEl.setAttribute('data-expanded', 'false');
+                        const expandIcon = newChatEl.querySelector('.expand-icon');
+                        const expandText = newChatEl.querySelector('.expand-text');
+                        const content = newChatEl.querySelector('.chat-continuation-content');
+                        if (expandIcon)
+                            expandIcon.textContent = '▶';
+                        if (expandText)
+                            expandText.textContent = 'Continue conversation';
+                        if (content)
+                            content.style.display = 'none';
+                    }
+                    this.logger.logInfo('Chat continuation submitted successfully', 'submitChatContinuation', {
+                        nodeId,
+                        blockId,
+                        inputLength: chatInput.length,
+                        responseLength: responseContent.length
+                    });
+                }
+                catch (error) {
+                    // Update state with error
+                    state.hasError = true;
+                    state.errorMessage = error instanceof Error ? error.message : 'Failed to send message';
+                    state.isLoading = false;
+                    // Re-render to show error
+                    const errorNode = this.nodes.get(nodeId);
+                    if (errorNode) {
+                        this.rerenderNode(errorNode);
+                    }
+                    throw error;
+                }
+                const executionTime = performance.now() - startTime;
+                this.logger.logPerformance('submitChatContinuation', 'chat_submission', executionTime);
+                this.logger.logFunctionExit('submitChatContinuation', { nodeId, blockId }, executionTime);
+            }
+            catch (error) {
+                this.logger.logError(error, 'submitChatContinuation', { nodeId, blockId });
+                // Re-enable UI on error
+                const chatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
+                if (chatEl) {
+                    const submitBtn = chatEl.querySelector('.submit-chat');
+                    const textarea = chatEl.querySelector('.chat-input');
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Send';
+                    }
+                    if (textarea) {
+                        textarea.disabled = false;
+                    }
+                }
+            }
+        });
+    }
     // Removed handleResponseComplete method since auto-rendering is disabled
     /**
      * Center the canvas view on all nodes
@@ -2484,12 +2822,6 @@ export class GraphEditor {
      */
     getNodes() {
         return new Map(this.nodes);
-    }
-    /**
-     * Get a specific node by ID
-     */
-    getNode(nodeId) {
-        return this.nodes.get(nodeId);
     }
     /**
      * Get current canvas state

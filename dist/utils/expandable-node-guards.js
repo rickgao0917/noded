@@ -2,7 +2,7 @@
  * Type guards for expandable node system
  * Provides runtime validation for node and block structures
  */
-import { NODE_DIMENSION_CONSTANTS, BLOCK_DIMENSION_CONSTANTS } from '../types/expandable-node.types';
+import { NODE_DIMENSION_CONSTANTS, BLOCK_DIMENSION_CONSTANTS } from '../types/expandable-node.types.js';
 /**
  * Checks if a value has a required property of a specific type
  */

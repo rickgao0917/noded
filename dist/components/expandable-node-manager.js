@@ -2,12 +2,12 @@
  * Expandable Node Manager
  * Core manager for nodes with dynamic dimensions and block support
  */
-import { createNodeId, createBlockId } from '../utils/id-generator';
-import { NODE_DIMENSION_CONSTANTS } from '../types/expandable-node.types';
-import { NodeCreationError, NodeResizeError, BlockCreationError, BlockUpdateError, NodeNotFoundError, BlockNotFoundError, NodeRenderError } from '../types/expandable-node-errors';
-import { ValidationError } from '../types/errors';
-import { NodeResizeHandler } from './node-resize-handler';
-import { isExpandableNode, isBasicBlock, validateBlockType, createDefaultNodeDimensions, createDefaultBlockDimensions, clampNodeDimensions } from '../utils/expandable-node-guards';
+import { createNodeId, createBlockId } from '../utils/id-generator.js';
+import { NODE_DIMENSION_CONSTANTS } from '../types/expandable-node.types.js';
+import { NodeCreationError, NodeResizeError, BlockCreationError, BlockUpdateError, NodeNotFoundError, BlockNotFoundError, NodeRenderError } from '../types/expandable-node-errors.js';
+import { ValidationError } from '../types/errors.js';
+import { NodeResizeHandler } from './node-resize-handler.js';
+import { isExpandableNode, isBasicBlock, validateBlockType, createDefaultNodeDimensions, createDefaultBlockDimensions, clampNodeDimensions } from '../utils/expandable-node-guards.js';
 /**
  * Base class for node managers (to be extended if needed)
  */

@@ -6,6 +6,7 @@
  */
 
 import { GraphEditor } from './components/graph-editor.js';
+import { ChatInterface } from './components/chat-interface.js';
 import { Logger } from './utils/logger.js';
 import { ErrorFactory } from './types/errors.js';
 import './utils/debug-helper.js'; // Initializes window.debug
@@ -56,6 +57,21 @@ function initializeEditor(): void {
 
     const editor = new GraphEditor(canvas, canvasContent, connections, false);
     logger.logInfo('GraphEditor instance created successfully', 'initializeEditor');
+    
+    // Create and initialize ChatInterface
+    const editorContainer = document.querySelector('.editor-container') as HTMLElement;
+    if (!editorContainer) {
+      throw errorFactory.createDOMError(
+        'Editor container not found',
+        'EDITOR_CONTAINER_NOT_FOUND', 
+        'Unable to initialize chat interface.',
+        'initializeEditor'
+      );
+    }
+    
+    const chatInterface = new ChatInterface(editorContainer, editor);
+    editor.setChatInterface(chatInterface);
+    logger.logInfo('ChatInterface instance created and connected', 'initializeEditor');
     
     // Set up global button handlers with comprehensive error handling
     setupGlobalEventHandlers(editor, logger, errorFactory);

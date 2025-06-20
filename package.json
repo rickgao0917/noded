@@ -4,7 +4,7 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/fix-imports.js",
     "build:strict": "tsc --strict --noEmit && eslint . && npm run build",
     "dev": "tsc --watch",
     "serve": "python3 -m http.server 8000",
@@ -35,5 +35,9 @@
     "ts-jest": "^29.1.1",
     "typescript": "^5.5.3"
   },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@types/dompurify": "^3.0.5",
+    "isomorphic-dompurify": "^2.25.0"
+  }
 }

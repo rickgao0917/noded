@@ -2,7 +2,7 @@
  * Validator utility class
  * Provides assertion-style validation methods
  */
-import { ValidationError } from '../types/errors';
+import { ValidationError } from '../types/errors.js';
 /**
  * Validator class for runtime validation
  */
