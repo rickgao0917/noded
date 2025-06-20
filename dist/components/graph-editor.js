@@ -1968,7 +1968,7 @@ export class GraphEditor {
                     return;
                 const deltaX = e.clientX - startX;
                 const deltaY = e.clientY - startY;
-                const newWidth = Math.max(300, Math.min(600, startWidth + deltaX));
+                const newWidth = Math.max(300, Math.min(1200, startWidth + deltaX));
                 const newHeight = Math.max(150, startHeight + deltaY);
                 nodeEl.style.width = newWidth + 'px';
                 nodeEl.style.minHeight = newHeight + 'px';
