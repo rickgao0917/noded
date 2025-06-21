@@ -325,12 +325,46 @@ export class ChatInterface {
             if (chatOpen) {
                 canvas.classList.add('chat-active');
                 canvas.style.width = `${CHAT_CONSTANTS.CANVAS_WIDTH_WITH_CHAT}%`;
+                // Store the current zoom level before adjusting
+                const currentZoom = this.graphEditor.getScale();
+                if (!this.state.zoomBeforeChat) {
+                    this.state.zoomBeforeChat = currentZoom;
+                }
+                // Calculate new zoom to fit more nodes
+                // Reduce zoom based on configured factor
+                const targetZoom = Math.max(0.1, currentZoom * CHAT_CONSTANTS.ZOOM_REDUCTION_FACTOR);
+                this.graphEditor.setZoom(targetZoom);
+                // Update zoom slider if it exists
+                const zoomSlider = document.getElementById('zoomSlider');
+                const zoomValue = document.getElementById('zoomValue');
+                if (zoomSlider && zoomValue) {
+                    const zoomPercent = Math.round(targetZoom * 100);
+                    zoomSlider.value = zoomPercent.toString();
+                    zoomValue.textContent = `${zoomPercent}%`;
+                }
             }
             else {
                 canvas.classList.remove('chat-active');
                 canvas.style.width = '100%';
+                // Restore previous zoom level when chat closes
+                if (this.state.zoomBeforeChat) {
+                    this.graphEditor.setZoom(this.state.zoomBeforeChat);
+                    // Update zoom slider
+                    const zoomSlider = document.getElementById('zoomSlider');
+                    const zoomValue = document.getElementById('zoomValue');
+                    if (zoomSlider && zoomValue) {
+                        const zoomPercent = Math.round(this.state.zoomBeforeChat * 100);
+                        zoomSlider.value = zoomPercent.toString();
+                        zoomValue.textContent = `${zoomPercent}%`;
+                    }
+                    // Clear stored zoom
+                    delete this.state.zoomBeforeChat;
+                }
             }
-            this.logger.logInfo('canvas_adjusted', 'adjustCanvasLayout', { chatOpen });
+            this.logger.logInfo('canvas_adjusted', 'adjustCanvasLayout', {
+                chatOpen,
+                zoomAdjusted: true
+            });
         }
         finally {
             this.logger.logFunctionExit('adjustCanvasLayout');

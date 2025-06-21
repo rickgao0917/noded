@@ -51,5 +51,7 @@ export const CHAT_CONSTANTS = {
     /** Canvas width percentage when chat is open */
     CANVAS_WIDTH_WITH_CHAT: 60,
     /** Default panel width percentage */
-    DEFAULT_PANEL_WIDTH: 40
+    DEFAULT_PANEL_WIDTH: 40,
+    /** Zoom reduction factor when chat opens (0.7 = 70% of current zoom) */
+    ZOOM_REDUCTION_FACTOR: 0.65
 };

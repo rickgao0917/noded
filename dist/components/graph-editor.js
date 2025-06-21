@@ -146,6 +146,8 @@ export class GraphEditor {
                     this.isPanning = true;
                     this.lastPanX = e.clientX;
                     this.lastPanY = e.clientY;
+                    // Add panning class to disable transitions
+                    this.canvas.classList.add('panning');
                     this.logger.logVariableAssignment('setupEventListeners', 'isPanning', true);
                     this.logger.logVariableAssignment('setupEventListeners', 'lastPanX', e.clientX);
                     this.logger.logVariableAssignment('setupEventListeners', 'lastPanY', e.clientY);
@@ -185,6 +187,8 @@ export class GraphEditor {
                         wasDragging: this.isDragging
                     });
                 }
+                // Remove panning/dragging classes
+                this.canvas.classList.remove('panning', 'dragging');
                 this.isPanning = false;
                 this.isDragging = false;
                 this.logger.logVariableAssignment('setupEventListeners', 'isPanning', false);
@@ -805,6 +809,8 @@ export class GraphEditor {
                         return;
                     isDragging = true;
                     this.isDragging = true;
+                    // Add dragging class to disable transitions
+                    this.canvas.classList.add('dragging');
                     startX = e.clientX;
                     startY = e.clientY;
                     startNodeX = node.position.x;

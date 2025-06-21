@@ -49,6 +49,9 @@ export interface ChatInterfaceState {
   
   /** Loading states for various operations */
   loadingStates: LoadingStates;
+  
+  /** Stored zoom level before chat was opened, for restoration */
+  zoomBeforeChat?: number;
 }
 
 /**
