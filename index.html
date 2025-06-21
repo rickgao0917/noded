@@ -630,6 +630,12 @@
             display: flex;
             gap: 10px;
             z-index: 1000;
+            transition: right 0.3s ease;
+        }
+        
+        /* Move controls to the left when chat is open */
+        .editor-container.chat-active .controls {
+            right: calc(40% + 20px); /* Chat panel is 40% wide */
         }
 
         .control-btn {
@@ -662,6 +668,12 @@
             font-size: 11px;
             color: #ccc;
             z-index: 1000;
+            transition: right 0.3s ease;
+        }
+        
+        /* Move zoom controls to the left when chat is open */
+        .editor-container.chat-active .zoom-controls {
+            right: calc(40% + 20px); /* Chat panel is 40% wide */
         }
 
         .zoom-controls label {

@@ -319,11 +319,12 @@ export class ChatInterface {
     adjustCanvasLayout(chatOpen) {
         this.logger.logFunctionEntry('adjustCanvasLayout', { chatOpen });
         try {
-            const canvas = document.querySelector('.canvas-container');
-            if (!canvas)
+            const canvas = document.querySelector('.canvas');
+            const editorContainer = document.querySelector('.editor-container');
+            if (!canvas || !editorContainer)
                 return;
             if (chatOpen) {
-                canvas.classList.add('chat-active');
+                editorContainer.classList.add('chat-active');
                 canvas.style.width = `${CHAT_CONSTANTS.CANVAS_WIDTH_WITH_CHAT}%`;
                 // Store the current zoom level before adjusting
                 const currentZoom = this.graphEditor.getScale();
@@ -344,7 +345,7 @@ export class ChatInterface {
                 }
             }
             else {
-                canvas.classList.remove('chat-active');
+                editorContainer.classList.remove('chat-active');
                 canvas.style.width = '100%';
                 // Restore previous zoom level when chat closes
                 if (this.state.zoomBeforeChat) {
@@ -575,12 +576,57 @@ export class ChatInterface {
                 this.updateLoadingState('sendingMessage', true);
                 this.updateLoadingState('generatingResponse', true);
                 try {
-                    // Create child node with prompt and get response
-                    const newNodeId = yield this.conversationManager.createChildNodeForPrompt(this.state.activeThread.targetNodeId, content);
-                    // Sync with graph display
-                    yield this.graphSynchronizer.syncNewChildNode(this.state.activeThread.targetNodeId, newNodeId);
+                    // First, add the prompt message to the chat immediately
+                    const promptMessage = {
+                        id: `msg-${Date.now()}-prompt`,
+                        type: ChatMessageType.USER_PROMPT,
+                        content: content,
+                        timestamp: new Date(),
+                        nodeId: this.state.activeThread.targetNodeId,
+                        blockId: 'pending'
+                    };
+                    // Add the message to the current thread temporarily
+                    if (this.state.activeThread) {
+                        this.state.activeThread.messages.push(promptMessage);
+                        // Re-render the thread to show the new prompt immediately
+                        this.renderThread(this.state.activeThread);
+                    }
+                    // Prepare to track streaming response
+                    let responseMessageId = null;
+                    let targetNodeId = this.state.activeThread.targetNodeId;
+                    // Submit prompt with streaming callback
+                    const resultNodeId = yield this.conversationManager.submitPromptForNode(targetNodeId, content, (streamingContent) => {
+                        // Handle streaming updates
+                        if (!responseMessageId) {
+                            // Create response message on first chunk
+                            responseMessageId = `msg-${Date.now()}-response`;
+                            const responseMessage = {
+                                id: responseMessageId,
+                                type: ChatMessageType.ASSISTANT_RESPONSE,
+                                content: streamingContent,
+                                timestamp: new Date(),
+                                nodeId: targetNodeId, // Use the target node ID for now
+                                blockId: 'streaming'
+                            };
+                            if (this.state.activeThread) {
+                                this.state.activeThread.messages.push(responseMessage);
+                                this.renderThread(this.state.activeThread);
+                            }
+                        }
+                        else {
+                            // Update existing response message
+                            this.updateStreamingMessage(responseMessageId, streamingContent);
+                        }
+                    });
+                    // Only sync if a new node was created
+                    if (resultNodeId !== this.state.activeThread.targetNodeId) {
+                        // Sync with graph display
+                        yield this.graphSynchronizer.syncNewChildNode(this.state.activeThread.targetNodeId, resultNodeId);
+                    }
+                    // Refresh the chat view to show the complete updated conversation
+                    yield this.openChatForNode(resultNodeId);
                     this.logger.logInfo('Prompt command processed successfully', 'handlePromptCommand', {
-                        newNodeId
+                        resultNodeId
                     });
                 }
                 catch (error) {
@@ -635,6 +681,42 @@ export class ChatInterface {
                 this.logger.logFunctionExit('handleMarkdownCommand');
             }
         });
+    }
+    /**
+     * Updates a streaming message in the chat display
+     */
+    updateStreamingMessage(messageId, content) {
+        this.logger.logFunctionEntry('updateStreamingMessage', {
+            messageId,
+            contentLength: content.length
+        });
+        try {
+            const messageEl = document.querySelector(`[data-message-id="${messageId}"]`);
+            if (messageEl) {
+                const contentEl = messageEl.querySelector('.chat-message-content');
+                if (contentEl) {
+                    // Update with rendered markdown
+                    contentEl.innerHTML = markdownProcessor.renderMarkdown(content, ChatMessageType.ASSISTANT_RESPONSE);
+                    // Scroll to bottom to show new content
+                    if (this.messagesElement) {
+                        this.messagesElement.scrollTop = this.messagesElement.scrollHeight;
+                    }
+                }
+            }
+            // Also update the message in the thread data
+            if (this.state.activeThread) {
+                const message = this.state.activeThread.messages.find(m => m.id === messageId);
+                if (message) {
+                    message.content = content;
+                }
+            }
+        }
+        catch (error) {
+            this.logger.logError(error, 'updateStreamingMessage', { messageId });
+        }
+        finally {
+            this.logger.logFunctionExit('updateStreamingMessage');
+        }
     }
     /**
      * Shows an error message to the user.

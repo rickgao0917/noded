@@ -420,8 +420,8 @@ export class GraphEditor {
                 position: position || { x: 0, y: 0 },
                 depth: nodeDepth,
                 blocks: blocks.length > 0 ? blocks : [
-                    { id: `${nodeId}_prompt`, type: 'prompt', content: 'Enter your prompt here...', position: 0 }
-                    // Response block will be auto-generated after LLM submission
+                    { id: `${nodeId}_prompt`, type: 'prompt', content: '', position: 0 }
+                    // Empty prompt block - will be populated when user submits
                 ]
             };
             // Validate created node
@@ -525,7 +525,7 @@ export class GraphEditor {
                         this.logger.logVariableAssignment('renderNode', 'buttonAction', action);
                         this.logger.logVariableAssignment('renderNode', 'buttonNodeId', nodeId);
                         if (action === 'addChild' && nodeId) {
-                            this.addChild(nodeId);
+                            this.addChild(nodeId, true); // Create empty node
                         }
                         else if (action === 'deleteNode' && nodeId) {
                             this.deleteNode(nodeId);
@@ -969,11 +969,12 @@ export class GraphEditor {
      * Add a child node to an existing parent node
      *
      * @param parentId - ID of the parent node
+     * @param isEmpty - Whether to create an empty node without default content
      * @returns The ID of the newly created child node
      * @throws {ValidationError} When parentId is invalid
      * @throws {TreeStructureError} When parent doesn't exist
      */
-    addChild(parentId) {
+    addChild(parentId, isEmpty = false) {
         const startTime = performance.now();
         this.logger.logFunctionEntry('addChild', { parentId });
         try {
@@ -984,7 +985,10 @@ export class GraphEditor {
             if (!parent) {
                 throw this.errorFactory.createTreeStructureError(parentId, 'add_child', `Parent node ${parentId} does not exist`, 'addChild', { parentId });
             }
-            const childId = this.createNode(parentId, [
+            const childId = this.createNode(parentId, isEmpty ? [
+                { id: `${parentId}_child_prompt_${Date.now()}`, type: 'prompt', content: '', position: 0 }
+                // Response will be auto-generated after LLM submission
+            ] : [
                 { id: `${parentId}_child_prompt_${Date.now()}`, type: 'prompt', content: 'Enter your prompt here...', position: 0 }
                 // Response will be auto-generated after LLM submission
             ]);
@@ -1147,10 +1151,11 @@ export class GraphEditor {
      * Submit prompt to LLM and create response block
      *
      * @param nodeId - ID of node containing the prompt
+     * @param onStreamingUpdate - Optional callback for streaming updates
      * @throws {ValidationError} When nodeId is invalid
      * @throws {NodeEditorError} When submission fails
      */
-    submitToLLM(nodeId) {
+    submitToLLM(nodeId, onStreamingUpdate) {
         return __awaiter(this, void 0, void 0, function* () {
             const startTime = performance.now();
             this.logger.logFunctionEntry('submitToLLM', { nodeId });
@@ -1179,6 +1184,10 @@ export class GraphEditor {
                     yield geminiService.sendMessage(promptBlock.content, (chunk) => {
                         responseContent += chunk;
                         this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
+                        // Call the external streaming callback if provided
+                        if (onStreamingUpdate) {
+                            onStreamingUpdate(responseContent);
+                        }
                     });
                     // Response block completed - initialize preview mode
                     yield this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
@@ -1765,8 +1774,8 @@ export class GraphEditor {
         this.logger.logFunctionEntry('addRootNode');
         try {
             const rootId = this.createNode(null, [
-                { id: `root_${Date.now()}_prompt`, type: 'prompt', content: 'Enter your prompt here...', position: 0 }
-                // Response will be auto-generated after LLM submission
+                { id: `root_${Date.now()}_prompt`, type: 'prompt', content: '', position: 0 }
+                // Empty prompt - will be populated when user submits via chat
             ]);
             this.logger.logInfo('Root node created successfully', 'addRootNode', {
                 rootId,
@@ -2100,7 +2109,7 @@ export class GraphEditor {
                     maxHeight = Math.max(maxHeight, height);
                 }
                 // Move to next depth level with spacing
-                currentY += maxHeight + 100; // 100px vertical spacing between levels
+                currentY += maxHeight + 150; // 150px vertical spacing between levels to ensure no overlap
             }
             // Update all node positions with the new Y coordinates
             for (const result of layoutResults) {
@@ -2144,10 +2153,11 @@ export class GraphEditor {
             // Use average height for initial calculation
             const avgHeight = Array.from(nodeHeights.values()).reduce((sum, h) => sum + h, 0) / nodes.length || this.NODE_HEIGHT;
             // Use the tree layout utility with dynamic sizing
+            // Increase spacing to prevent collisions
             const layout = {
                 nodeWidth: this.NODE_WIDTH,
                 nodeHeight: avgHeight,
-                horizontalSpacing: 200,
+                horizontalSpacing: 250, // Increased from 200 to ensure no horizontal overlap
                 verticalSpacing: 50 // Base spacing, will be adjusted per node
             };
             // Use the tree layout algorithm for initial positions
@@ -2186,8 +2196,8 @@ export class GraphEditor {
                     clearInterval(connectionUpdateInterval);
                 }
             }, UPDATE_INTERVAL);
-            // Center the view on the graph
-            this.centerViewOnGraph();
+            // Center the view on the graph and adjust zoom to fit all nodes
+            this.fitAllNodesInView();
             this.logger.logInfo('Auto layout completed successfully', 'autoLayout', {
                 nodesPositioned: mutableResults.length
             });
@@ -2735,16 +2745,16 @@ export class GraphEditor {
     }
     // Removed handleResponseComplete method since auto-rendering is disabled
     /**
-     * Center the canvas view on all nodes
+     * Fit all nodes in the canvas view by adjusting zoom and pan
      *
      * @private
      */
-    centerViewOnGraph() {
+    fitAllNodesInView() {
         const startTime = performance.now();
-        this.logger.logFunctionEntry('centerViewOnGraph');
+        this.logger.logFunctionEntry('fitAllNodesInView');
         try {
             if (this.nodes.size === 0) {
-                this.logger.logWarn('No nodes to center on', 'centerViewOnGraph');
+                this.logger.logWarn('No nodes to fit in view', 'fitAllNodesInView');
                 return;
             }
             // Calculate bounding box of all nodes
@@ -2759,28 +2769,54 @@ export class GraphEditor {
                 maxX = Math.max(maxX, node.position.x + nodeWidth);
                 maxY = Math.max(maxY, node.position.y + nodeHeight);
             }
-            // Calculate center of bounding box
-            const centerX = (minX + maxX) / 2;
-            const centerY = (minY + maxY) / 2;
+            // Add padding around the bounding box
+            const padding = 50;
+            minX -= padding;
+            minY -= padding;
+            maxX += padding;
+            maxY += padding;
+            // Calculate bounding box dimensions
+            const graphWidth = maxX - minX;
+            const graphHeight = maxY - minY;
             // Get canvas dimensions
             const canvasRect = this.canvas.getBoundingClientRect();
             const canvasWidth = canvasRect.width;
             const canvasHeight = canvasRect.height;
+            // Calculate the scale needed to fit all nodes
+            const scaleX = canvasWidth / graphWidth;
+            const scaleY = canvasHeight / graphHeight;
+            const newScale = Math.min(scaleX, scaleY, 1.0); // Don't zoom in more than 100%
+            // Apply the new scale
+            this.scale = Math.max(0.1, Math.min(5, newScale)); // Clamp between 0.1 and 5
+            // Calculate center of bounding box
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
             // Calculate pan to center the graph
             this.panX = (canvasWidth / 2) - (centerX * this.scale);
             this.panY = (canvasHeight / 2) - (centerY * this.scale);
+            // Update the canvas transform
             this.updateCanvasTransform();
-            this.logger.logInfo('View centered on graph', 'centerViewOnGraph', {
+            // Update zoom slider UI
+            const zoomSlider = document.getElementById('zoomSlider');
+            const zoomValue = document.getElementById('zoomValue');
+            if (zoomSlider && zoomValue) {
+                const zoomPercent = Math.round(this.scale * 100);
+                zoomSlider.value = zoomPercent.toString();
+                zoomValue.textContent = `${zoomPercent}%`;
+            }
+            this.logger.logInfo('Fit all nodes in view', 'fitAllNodesInView', {
                 boundingBox: { minX, minY, maxX, maxY },
-                center: { centerX, centerY },
+                graphDimensions: { width: graphWidth, height: graphHeight },
+                canvasDimensions: { width: canvasWidth, height: canvasHeight },
+                newScale: this.scale,
                 pan: { panX: this.panX, panY: this.panY }
             });
             const executionTime = performance.now() - startTime;
-            this.logger.logPerformance('centerViewOnGraph', 'centering', executionTime);
-            this.logger.logFunctionExit('centerViewOnGraph', undefined, executionTime);
+            this.logger.logPerformance('fitAllNodesInView', 'fit_view', executionTime);
+            this.logger.logFunctionExit('fitAllNodesInView', { scale: this.scale }, executionTime);
         }
         catch (error) {
-            this.logger.logError(error, 'centerViewOnGraph');
+            this.logger.logError(error, 'fitAllNodesInView');
             // Don't throw, this is a helper method
         }
     }

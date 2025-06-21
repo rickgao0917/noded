@@ -121,15 +121,71 @@ export class ConversationManager {
         }
     }
     /**
+     * Updates an empty node with prompt content or creates a new child node.
+     * If the current node has an empty prompt, it updates that node.
+     * Otherwise, it creates a new child node.
+     *
+     * @param nodeId - The current node ID
+     * @param promptContent - The prompt content from the user
+     * @param onStreamingUpdate - Optional callback for streaming updates
+     * @returns The ID of the updated or newly created node
+     * @throws ValidationError if node doesn't exist
+     */
+    submitPromptForNode(nodeId, promptContent, onStreamingUpdate) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const startTime = performance.now();
+            this.logger.logFunctionEntry('submitPromptForNode', {
+                nodeId,
+                promptLength: promptContent.length
+            });
+            try {
+                // Check if current node has an empty prompt block
+                const currentNode = this.graphEditor.getNode(nodeId);
+                if (!currentNode) {
+                    throw this.errorFactory.createValidationError(`Node with ID ${nodeId} not found`, 'NODE_NOT_FOUND', 'Cannot submit prompt: node does not exist.', 'submitPromptForNode', { nodeId });
+                }
+                // Check if the node has an empty prompt block
+                const promptBlock = currentNode.blocks.find(b => b.type === 'prompt');
+                if (promptBlock && promptBlock.content === '') {
+                    // Update the existing empty node
+                    this.logger.logInfo('Updating empty prompt block', 'submitPromptForNode', { nodeId });
+                    const blockIndex = currentNode.blocks.indexOf(promptBlock);
+                    this.graphEditor.updateBlockContent(nodeId, blockIndex, promptContent);
+                    this.graphEditor.refreshNode(nodeId);
+                    // Generate LLM response for this node
+                    yield this.graphEditor.submitToLLM(nodeId, onStreamingUpdate);
+                    // Update flow state
+                    this.flowState.lastPromptNodeId = nodeId;
+                    return nodeId;
+                }
+                else {
+                    // Create a new child node
+                    this.logger.logInfo('Creating new child node for prompt', 'submitPromptForNode', { nodeId });
+                    return yield this.createChildNodeForPrompt(nodeId, promptContent, onStreamingUpdate);
+                }
+            }
+            catch (error) {
+                this.logger.logError(error, 'submitPromptForNode');
+                throw error;
+            }
+            finally {
+                const executionTime = performance.now() - startTime;
+                this.logger.logPerformance('submitPromptForNode', 'prompt_submission', executionTime);
+                this.logger.logFunctionExit('submitPromptForNode', undefined, executionTime);
+            }
+        });
+    }
+    /**
      * Creates a new child node with a prompt block and generates an LLM response.
      *
      * @param parentNodeId - The parent node to create the child under
      * @param promptContent - The prompt content from the user
+     * @param onStreamingUpdate - Optional callback for streaming updates
      * @returns The ID of the newly created node
      * @throws ValidationError if parent doesn't exist
      * @throws TreeStructureError if tree constraints would be violated
      */
-    createChildNodeForPrompt(parentNodeId, promptContent) {
+    createChildNodeForPrompt(parentNodeId, promptContent, onStreamingUpdate) {
         return __awaiter(this, void 0, void 0, function* () {
             const startTime = performance.now();
             this.logger.logFunctionEntry('createChildNodeForPrompt', {
@@ -174,7 +230,7 @@ export class ConversationManager {
                         contextLength: conversationContext.length,
                         promptPreview: promptContent.substring(0, 50)
                     });
-                    yield this.graphEditor.submitToLLM(newNodeId);
+                    yield this.graphEditor.submitToLLM(newNodeId, onStreamingUpdate);
                     // Update flow state
                     this.flowState.lastPromptNodeId = newNodeId;
                 }

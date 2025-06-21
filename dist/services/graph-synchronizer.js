@@ -75,12 +75,9 @@ export class GraphSynchronizer {
                             yield this.chatInterface.openChatForNode(newNodeId);
                         }
                     }
-                    // Consider auto-layout if configured
-                    // TODO: Make this configurable
-                    const shouldAutoLayout = false;
-                    if (shouldAutoLayout) {
-                        this.graphEditor.autoLayout();
-                    }
+                    // Auto-layout when nodes are added from conversation
+                    this.graphEditor.autoLayout();
+                    this.logger.logInfo('Auto-layout applied after node creation', 'syncNewChildNode');
                 }
                 catch (error) {
                     this.logger.logError(error, 'syncNewChildNode', {
