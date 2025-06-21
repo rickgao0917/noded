@@ -189,6 +189,51 @@ describe('Branching Workflow Integration', () => {
       expect(branchNode!.blocks.find(b => b.type === 'prompt')?.content).toBe('Chat-edited prompt');
     });
     
+    it('should allow submitting prompts from branch nodes via chat interface', async () => {
+      const rootId = Array.from(graphEditor['nodes'].keys())[0];
+      const rootNode = graphEditor.getNode(rootId!);
+      const promptBlock = rootNode?.blocks.find(b => b.type === 'prompt');
+      
+      // Create a branch by editing the prompt
+      await graphEditor.updateBlockContent(rootId!, promptBlock!.id, 'Branched prompt');
+      
+      // Find the branch node
+      const allNodes = Array.from(graphEditor['nodes'].values());
+      const branchNode = allNodes.find(n => n.id !== rootId && n.branchedFrom === rootId);
+      expect(branchNode).toBeDefined();
+      
+      // Open chat for the branch node
+      await chatInterface.openChatForNode(branchNode!.id);
+      
+      // Get conversation manager
+      const conversationManager = chatInterface['conversationManager'];
+      
+      // Mock the LLM submission to avoid actual API calls
+      jest.spyOn(graphEditor, 'submitToLLM').mockResolvedValue();
+      
+      // Submit a prompt from the branch node
+      const newPromptContent = 'Follow-up question from branch';
+      const newNodeId = await conversationManager.createChildNodeForPrompt(
+        branchNode!.id,
+        newPromptContent
+      );
+      
+      // Verify the new node was created
+      const newNode = graphEditor.getNode(newNodeId);
+      expect(newNode).toBeDefined();
+      expect(newNode!.parentId).toBe(branchNode!.id);
+      expect(branchNode!.children).toContain(newNodeId);
+      
+      // Verify the prompt content
+      const newPromptBlock = newNode!.blocks.find(b => b.type === 'prompt');
+      expect(newPromptBlock?.content).toBe(newPromptContent);
+      
+      // Verify tree integrity still passes
+      expect(() => {
+        graphEditor['validator'].validateTreeIntegrity(graphEditor['nodes'], 'test');
+      }).not.toThrow();
+    });
+    
     it.skip('should maintain conversation thread after branching', async () => {
       const rootId = Array.from(graphEditor['nodes'].keys())[0];
       
@@ -396,6 +441,36 @@ describe('Branching Workflow Integration', () => {
       branches.forEach(branch => {
         expect(branch.children).toEqual([]);
       });
+    });
+    
+    it('should allow creating child nodes from branch nodes', async () => {
+      const rootId = Array.from(graphEditor['nodes'].keys())[0];
+      const rootNode = graphEditor.getNode(rootId!);
+      const promptBlock = rootNode?.blocks.find(b => b.type === 'prompt');
+      
+      // Create a branch by editing the prompt
+      await graphEditor.updateBlockContent(rootId!, promptBlock!.id, 'Branched prompt');
+      
+      // Find the branch node
+      const allNodes = Array.from(graphEditor['nodes'].values());
+      const branchNode = allNodes.find(n => n.id !== rootId && n.branchedFrom === rootId);
+      expect(branchNode).toBeDefined();
+      
+      // Create a child node from the branch
+      const childId = graphEditor.createNode(branchNode!.id, [
+        { id: 'child-prompt' as BlockId, type: 'prompt', content: 'Child prompt', position: 0 }
+      ]);
+      
+      // Verify the child was created properly
+      const childNode = graphEditor.getNode(childId);
+      expect(childNode).toBeDefined();
+      expect(childNode!.parentId).toBe(branchNode!.id);
+      expect(branchNode!.children).toContain(childId);
+      
+      // Verify tree integrity validation passes
+      expect(() => {
+        graphEditor['validator'].validateTreeIntegrity(graphEditor['nodes'], 'test');
+      }).not.toThrow();
     });
   });
 });

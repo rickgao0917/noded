@@ -182,7 +182,9 @@ export class Validator {
             if (!parentNode) {
                 throw this.errorFactory.createTreeStructureError(node.id, 'validate', `Node ${node.id} references non-existent parent ${node.parentId}`, functionName);
             }
-            if (!parentNode.children.includes(node.id)) {
+            // Check if parent has this node in its children array
+            // UNLESS this is a branch node (sibling) which has branchedFrom set
+            if (!parentNode.children.includes(node.id) && !node.branchedFrom) {
                 throw this.errorFactory.createTreeStructureError(node.id, 'validate', `Parent node ${node.parentId} does not reference child ${node.id}`, functionName);
             }
         }

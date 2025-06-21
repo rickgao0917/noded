@@ -13,6 +13,7 @@ import {
   isNodeBlock,
   Validator,
 } from '../../src/utils/type-guards';
+import { GraphNode } from '../../src/types/graph.types';
 import { createMockNode, createMockBlock } from '../setup';
 
 describe('Type Guards Utility Functions', () => {
@@ -471,6 +472,107 @@ describe('Type Guards Utility Functions', () => {
         expect(() => {
           validator.validateNonEmptyArray('not-array' as any, 'testArray', 'testFunction');
         }).toThrow();
+      });
+    });
+    
+    describe('validateTreeIntegrity', () => {
+      it('should validate tree with regular parent-child relationships', () => {
+        const nodes = new Map<string, GraphNode>();
+        
+        // Create a simple tree: root -> child1, child2
+        const root = createMockNode('root');
+        root.children = ['child1', 'child2'];
+        nodes.set('root', root);
+        
+        const child1 = createMockNode('child1', { depth: 1, parentId: 'root' });
+        nodes.set('child1', child1);
+        
+        const child2 = createMockNode('child2', { depth: 1, parentId: 'root' });
+        nodes.set('child2', child2);
+        
+        expect(() => {
+          validator.validateTreeIntegrity(nodes, 'testFunction');
+        }).not.toThrow();
+      });
+      
+      it('should validate tree with branch nodes (siblings)', () => {
+        const nodes = new Map<string, GraphNode>();
+        
+        // Create a tree with branches
+        const root = createMockNode('root');
+        root.children = ['child1'];
+        root.branches = ['branch1'];
+        nodes.set('root', root);
+        
+        const child1 = createMockNode('child1', { depth: 1, parentId: 'root' });
+        nodes.set('child1', child1);
+        
+        // Branch node - has parentId but is NOT in parent's children array
+        const branch1: GraphNode = {
+          ...createMockNode('branch1', { depth: 0, parentId: 'root' }),
+          branchedFrom: 'root'
+        };
+        nodes.set('branch1', branch1);
+        
+        expect(() => {
+          validator.validateTreeIntegrity(nodes, 'testFunction');
+        }).not.toThrow();
+      });
+      
+      it('should validate tree with children of branch nodes', () => {
+        const nodes = new Map<string, GraphNode>();
+        
+        // Create a tree: root -> branch -> branchChild
+        const root = createMockNode('root');
+        root.branches = ['branch1'];
+        nodes.set('root', root);
+        
+        // Branch node
+        const branch1: GraphNode = {
+          ...createMockNode('branch1', { depth: 0, parentId: 'root' }),
+          branchedFrom: 'root',
+          children: ['branchChild']
+        };
+        nodes.set('branch1', branch1);
+        
+        // Child of branch
+        const branchChild = createMockNode('branchChild', { depth: 1, parentId: 'branch1' });
+        nodes.set('branchChild', branchChild);
+        
+        expect(() => {
+          validator.validateTreeIntegrity(nodes, 'testFunction');
+        }).not.toThrow();
+      });
+      
+      it('should throw error for missing parent references', () => {
+        const nodes = new Map<string, GraphNode>();
+        
+        // Node with non-existent parent
+        const orphan = createMockNode('orphan', { depth: 1, parentId: 'missing-parent' });
+        nodes.set('orphan', orphan);
+        
+        expect(() => {
+          validator.validateTreeIntegrity(nodes, 'testFunction');
+        }).toThrow(/references non-existent parent/);
+      });
+      
+      it('should throw error for inconsistent parent-child relationships', () => {
+        const nodes = new Map<string, GraphNode>();
+        
+        // Parent doesn't list child in its children array
+        const parent = createMockNode('parent');
+        parent.children = []; // Empty children array
+        nodes.set('parent', parent);
+        
+        // Child claims parent but parent doesn't know about it
+        // AND it's not a branch node
+        const child = createMockNode('child', { depth: 1, parentId: 'parent' });
+        // No branchedFrom field, so it should be in parent's children
+        nodes.set('child', child);
+        
+        expect(() => {
+          validator.validateTreeIntegrity(nodes, 'testFunction');
+        }).toThrow(/does not reference child/);
       });
     });
   });
