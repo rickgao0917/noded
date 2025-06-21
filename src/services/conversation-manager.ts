@@ -195,8 +195,11 @@ export class ConversationManager {
         // Update the existing empty node
         this.logger.logInfo('Updating empty prompt block', 'submitPromptForNode', { nodeId });
         
-        const blockIndex = currentNode.blocks.indexOf(promptBlock);
-        this.graphEditor.updateBlockContent(nodeId, blockIndex, promptContent);
+        // Directly update the prompt content to avoid branching on empty nodes
+        // This is safe because the prompt is empty, so there's no history to preserve
+        promptBlock.content = promptContent;
+        
+        // Refresh the node to update the UI
         this.graphEditor.refreshNode(nodeId);
         
         // Generate LLM response for this node

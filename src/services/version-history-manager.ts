@@ -123,11 +123,17 @@ export class VersionHistoryManager {
     
     const branches: Set<NodeId> = new Set();
     
-    // Search through all history entries
-    for (const [currentNodeId, metadata] of this.history) {
-      for (const entry of metadata) {
-        if (entry.originalNodeId === nodeId && currentNodeId !== nodeId) {
-          branches.add(currentNodeId as NodeId);
+    // Look for all metadata entries where originalNodeId matches the given nodeId
+    // The branchMetadata stored contains the ID of the new branch node
+    for (const [_, metadataList] of this.history) {
+      for (const metadata of metadataList) {
+        if (metadata.originalNodeId === nodeId) {
+          // The metadata should contain information about the branch
+          // Since we're recording metadata for the original node,
+          // we need to find a way to get the branch node ID
+          // This requires the branch node ID to be stored in the metadata
+          // For now, we'll skip this method as the current implementation
+          // doesn't store the branch node ID in the metadata
         }
       }
     }

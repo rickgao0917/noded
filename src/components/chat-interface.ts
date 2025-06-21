@@ -1048,6 +1048,13 @@ export class ChatInterface {
             );
             
             if (branchResult.success) {
+              // Get the new node from the branching service
+              const newNode = branchingService.getNode(branchResult.newNodeId);
+              if (newNode) {
+                // Add the node to the graph editor
+                this.graphEditor.addNodeToGraph(newNode);
+              }
+              
               versionHistoryManager.recordBranch(branchResult.branchMetadata);
               await this.openChatForNode(branchResult.newNodeId);
               
@@ -1060,10 +1067,21 @@ export class ChatInterface {
         }
       } else if (messageType === ChatMessageType.ASSISTANT_RESPONSE) {
         // For responses, find the response block and create a branch
+        this.logger.logInfo('Creating branch for response edit', 'createBranchFromEdit', {
+          nodeId,
+          messageType,
+          contentPreview: newContent.substring(0, 50)
+        });
+        
         const node = this.graphEditor.getNode(nodeId);
         if (node) {
           const responseBlock = node.blocks.find(b => b.type === 'response');
           if (responseBlock) {
+            this.logger.logInfo('Found response block, creating branch', 'createBranchFromEdit', {
+              blockId: responseBlock.id,
+              blockType: responseBlock.type
+            });
+            
             const branchResult = await branchingService.createBranchFromEdit(
               nodeId as NodeId,
               responseBlock.id as BlockId,
@@ -1072,15 +1090,36 @@ export class ChatInterface {
             );
             
             if (branchResult.success) {
+              // Get the new node from the branching service
+              const newNode = branchingService.getNode(branchResult.newNodeId);
+              if (newNode) {
+                // Add the node to the graph editor
+                this.graphEditor.addNodeToGraph(newNode);
+              }
+              
               versionHistoryManager.recordBranch(branchResult.branchMetadata);
               await this.openChatForNode(branchResult.newNodeId);
               
-              this.logger.logInfo('Response branch created', 'createBranchFromEdit', {
+              this.logger.logInfo('Response branch created successfully', 'createBranchFromEdit', {
                 originalNodeId: nodeId,
                 newNodeId: branchResult.newNodeId
               });
+            } else {
+              this.logger.logWarn('Branch creation failed', 'createBranchFromEdit', {
+                nodeId,
+                blockId: responseBlock.id
+              });
             }
+          } else {
+            this.logger.logWarn('No response block found in node', 'createBranchFromEdit', {
+              nodeId,
+              blockTypes: node.blocks.map(b => b.type)
+            });
           }
+        } else {
+          this.logger.logWarn('Node not found for response edit', 'createBranchFromEdit', {
+            nodeId
+          });
         }
       } else if (messageType === ChatMessageType.USER_MARKDOWN) {
         // For markdown, update in place (no branching)

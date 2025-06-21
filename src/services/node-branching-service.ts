@@ -172,28 +172,29 @@ export class NodeBranchingService {
         newNode.blocks[blockIndex]!.content = newContent;
       }
       
-      // Set parent relationship
-      const parentNode = this.findParentNode(nodeId);
-      if (parentNode) {
-        // Create new node with correct parentId
-        const branchNode: GraphNode = {
-          ...newNode,
-          parentId: parentNode.id
-        };
-        parentNode.children.push(branchNode.id);
-        this.nodes.set(branchNode.id, branchNode);
-        this.logger.logBranch('createBranchFromEdit', 'parent_relationship_set', true, {
-          parentId: parentNode.id,
-          newNodeId: branchNode.id
-        });
-        newNode = branchNode;
-      } else {
-        // Original node is a root node - already has parentId: null
-        this.nodes.set(newNode.id, newNode);
-        this.logger.logBranch('createBranchFromEdit', 'root_node_branch', true, {
-          newNodeId: newNode.id
-        });
-      }
+      // The branch should be a child of the node being edited
+      // Note: originalNode was already validated at the beginning of this method
+      
+      // Set the branch as a child of the original node
+      const branchNode: GraphNode = {
+        ...newNode,
+        parentId: nodeId,  // The branch's parent is the node being edited
+        depth: originalNode.depth + 1
+      };
+      
+      // Add to original node's children
+      originalNode.children.push(branchNode.id);
+      
+      // Add to the branching service's nodes map
+      this.nodes.set(branchNode.id, branchNode);
+      
+      this.logger.logBranch('createBranchFromEdit', 'branch_created_as_child', true, {
+        originalNodeId: nodeId,
+        branchNodeId: branchNode.id,
+        parentId: branchNode.parentId
+      });
+      
+      newNode = branchNode;
       
       // Create branch metadata
       const branchMetadata: BranchMetadata = {
@@ -247,6 +248,15 @@ export class NodeBranchingService {
     }
   }
   
+  /**
+   * Get a node by ID from the branching service's nodes map
+   * @param nodeId - ID of the node to retrieve
+   * @returns The node if found, undefined otherwise
+   */
+  public getNode(nodeId: string): GraphNode | undefined {
+    return this.nodes.get(nodeId);
+  }
+
   /**
    * Determines if an edit should trigger branching based on block type
    * @param blockType - Type of block being edited
@@ -340,24 +350,6 @@ export class NodeBranchingService {
     return newNode;
   }
   
-  /**
-   * Finds the parent node of a given node
-   * @param nodeId - ID of the child node
-   * @returns Parent GraphNode or null if not found
-   */
-  private findParentNode(nodeId: string): GraphNode | null {
-    this.logger.logFunctionEntry('findParentNode', { nodeId });
-    
-    for (const [_, node] of this.nodes) {
-      if (node.children.includes(nodeId)) {
-        this.logger.logFunctionExit('findParentNode', { parentId: node.id });
-        return node;
-      }
-    }
-    
-    this.logger.logFunctionExit('findParentNode', null);
-    return null;
-  }
   
   /**
    * Records branch metadata for version history

@@ -149,7 +149,7 @@ describe('NodeBranchingService', () => {
       ).rejects.toThrow(ValidationError);
     });
     
-    it('should set parent relationship correctly for child nodes', async () => {
+    it('should set parent relationship correctly - branch as child of edited node', async () => {
       const result = await service.createBranchFromEdit(
         'node-2' as NodeId,
         'block-4' as BlockId,
@@ -158,13 +158,15 @@ describe('NodeBranchingService', () => {
       );
       
       const newNode = nodes.get(result.newNodeId);
-      expect(newNode!.parentId).toBe('node-1');
+      // The branch should be a child of node-2 (the edited node)
+      expect(newNode!.parentId).toBe('node-2');
       
-      const parentNode = nodes.get('node-1');
-      expect(parentNode!.children).toContain(result.newNodeId);
+      // node-2 should have the new branch as a child
+      const editedNode = nodes.get('node-2');
+      expect(editedNode!.children).toContain(result.newNodeId);
     });
     
-    it('should handle root node branching (no parent)', async () => {
+    it('should handle root node branching - branch as child of root', async () => {
       // node-1 already has parentId: null, so it's a root node
       const result = await service.createBranchFromEdit(
         'node-1' as NodeId,
@@ -174,7 +176,12 @@ describe('NodeBranchingService', () => {
       );
       
       const newNode = nodes.get(result.newNodeId);
-      expect(newNode!.parentId).toBeNull();
+      // The branch should be a child of node-1 (the edited root node)
+      expect(newNode!.parentId).toBe('node-1');
+      
+      // node-1 should have the new branch as a child
+      const editedNode = nodes.get('node-1');
+      expect(editedNode!.children).toContain(result.newNodeId);
     });
   });
   
