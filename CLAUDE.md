@@ -21,6 +21,8 @@ This is a graph-based node editor built with TypeScript that renders an interact
 - **Auto-layout Improvements**: Zero-collision layout with automatic zoom to fit all nodes
 - **Enhanced UX**: Controls reposition when chat opens, auto-layout on node creation
 - **Empty Node Creation**: Nodes start empty and populate only when prompts are submitted
+- **Branching System**: Edit prompts/responses to create sibling branches for version control
+- **Branch Node Support**: Fixed tree validation to allow child nodes from branch nodes
 
 ## Development Commands
 
@@ -118,6 +120,9 @@ If port 8000 is in use locally:
 - GraphNode interface includes custom `name` field for user-defined labels
 - Tree layout algorithm (`utils/tree-layout.ts`) calculates positions based on subtree width
 - Guaranteed tree structure with cycle detection and integrity validation
+- Branch nodes are siblings (same parentId) connected with dashed lines
+- Nodes track branches via `branches: string[]` and `branchedFrom: string`
+- Tree validation allows branch nodes to have parentId without being in parent's children array
 
 **Logging System** (`src/utils/logger.ts`):
 - Six log levels: TRACE, DEBUG, INFO, WARN, ERROR, FATAL
@@ -131,6 +136,7 @@ If port 8000 is in use locally:
 - Validator class with assertion-style methods
 - Tree integrity validation with detailed error reporting
 - DOM element validation with proper error context
+- Special handling for branch nodes in tree validation (nodes with `branchedFrom` field)
 
 ### File Organization
 
@@ -147,7 +153,10 @@ src/
 ├── components/
 │   └── graph-editor.ts          # Main GraphEditor class with comprehensive logging
 ├── services/
-│   └── gemini-service.ts        # Gemini 2.0 Flash API integration service
+│   ├── gemini-service.ts        # Gemini 2.0 Flash API integration service
+│   ├── node-branching-service.ts # Handles creation of branch nodes for version control
+│   ├── conversation-manager.ts   # Manages conversation threads and node associations
+│   └── chat-interface.ts        # Chat panel UI component
 ├── utils/
 │   ├── logger.ts                # Structured logging system
 │   ├── type-guards.ts           # Runtime validation and type guards
@@ -259,6 +268,8 @@ This project strictly adheres to the comprehensive TypeScript coding standards d
 - Calculates subtree widths recursively to determine node spacing
 - Positions nodes at fixed vertical levels based on depth
 - Handles multiple root nodes with horizontal offset
+- Positions branch nodes (siblings) to the right of their original node
+- Branch nodes maintain same depth level as the node they branched from
 - Comprehensive JSDoc documentation with examples
 
 **DOM Architecture:**
@@ -505,7 +516,7 @@ tests/
 - **Multi-line Support**: Full support for multi-line content including code blocks (use Ctrl+Enter to send)
 - **Real-time Streaming**: Responses stream to both chat and nodes simultaneously
 - **Markdown Rendering**: All markdown content is rendered with syntax highlighting
-- **Edit Mode**: Double-click messages to edit and create new branches
+- **Edit Mode**: Double-click messages to edit and create new branches (creates sibling nodes)
 - **Auto-layout Integration**: Nodes automatically reorganize when added from chat
 - **Responsive Controls**: UI controls reposition when chat panel opens
 
@@ -526,6 +537,27 @@ tests/
 - Zoom automatically reduces to 65% to fit more nodes
 - Control buttons and zoom controls shift left to remain accessible
 - Smooth transitions for all layout changes
+
+### Branching System Implementation (2025-01-21)
+
+**Version Control Features:**
+- **Automatic Branching**: Editing prompt or response blocks creates sibling branches
+- **Sibling Architecture**: Branches are positioned at the same depth level, not as children
+- **Visual Distinction**: Branch connections shown with dashed lines
+- **Conversation Isolation**: Chat interface shows only one branch path at a time
+- **Child Node Support**: Users can create child nodes from branch nodes via chat
+
+**Branch Node Structure:**
+- Branch nodes have `branchedFrom: string` field pointing to original node
+- Original nodes track branches via `branches: string[]` array
+- Branches share same `parentId` as the original node (siblings)
+- Tree validation allows branches to have parentId without being in parent's children array
+
+**Branching Rules:**
+- Only prompt and response edits create branches
+- Markdown edits update in-place without branching
+- Empty prompt edits update in-place without branching
+- Each edit creates a new sibling branch
 
 ### Simplified UI Implementation (2025-06-19)
 
@@ -722,10 +754,21 @@ This section provides a comprehensive overview of all files, their purposes, and
 **`src/services/conversation-manager.ts`** - Conversation Flow Management
 - **Primary class**: `ConversationManager` - manages conversation threads and node associations
 - **Key methods**:
-  - `buildThreadFromNodeToRoot(nodeId)` - Constructs conversation thread from node hierarchy
+  - `buildThreadFromNodeToRoot(nodeId)` - Constructs conversation thread from node hierarchy, excluding sibling branches
   - `submitPromptForNode(nodeId, content, onStreamingUpdate)` - Handles prompt submission with streaming
-  - `createChildNodeForPrompt()` - Creates new nodes for conversation branches
+  - `createChildNodeForPrompt()` - Creates new nodes for conversation branches (works with branch nodes)
   - `associateMarkdownWithPreviousPrompt()` - Links markdown notes to prompts
+
+**`src/services/node-branching-service.ts`** - Node Branching for Version Control
+- **Primary class**: `NodeBranchingService` - handles creation of branch nodes
+- **Key methods**:
+  - `shouldCreateBranch(blockType)` - Determines if editing a block should create a branch
+  - `createBranchFromEdit()` - Creates a sibling branch when editing prompt/response blocks
+  - `copyNodeWithoutChildren()` - Deep copies node content for branching
+- **Branch behavior**: 
+  - Branches are siblings (same parentId) not children
+  - Only prompt and response edits create branches (not markdown)
+  - Branches maintain same depth level as original node
 
 **`src/services/chat-input-handler.ts`** - Chat Command Processing
 - **Primary class**: `ChatInputHandler` - parses and validates chat commands
