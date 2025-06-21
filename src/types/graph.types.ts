@@ -54,6 +54,10 @@ export interface GraphNode {
   position: Position;
   /** Depth level in the tree (0 = root) */
   readonly depth: number;
+  /** Array of branch node IDs (siblings that were created from edits) */
+  branches?: string[];
+  /** ID of the node this was branched from (for branch nodes) */
+  branchedFrom?: string;
 }
 
 /**

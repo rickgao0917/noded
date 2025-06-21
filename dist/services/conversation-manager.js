@@ -54,9 +54,34 @@ export class ConversationManager {
             }
             // Step 1: Traverse from target node back to root
             const nodePath = [];
+            const excludedNodes = new Set(); // Track nodes to exclude (siblings not in path)
             let currentNode = targetNode;
             while (currentNode) {
                 nodePath.unshift(currentNode.id); // Add to beginning for root-to-target order
+                // If this node was branched from another node, we should use the original node instead
+                // and exclude all its sibling branches from the path
+                if (currentNode.branchedFrom) {
+                    const originalNode = this.graphEditor.getNode(currentNode.branchedFrom);
+                    if (originalNode) {
+                        // Add all branches of the original node to excluded set except the current one
+                        if (originalNode.branches) {
+                            for (const branchId of originalNode.branches) {
+                                if (branchId !== currentNode.id) {
+                                    excludedNodes.add(branchId);
+                                }
+                            }
+                        }
+                        // Also exclude the original node since we're using the branch
+                        excludedNodes.add(originalNode.id);
+                    }
+                }
+                // If this node has branches, exclude all of them from the path
+                // (we're following the main path, not the branches)
+                if (currentNode.branches) {
+                    for (const branchId of currentNode.branches) {
+                        excludedNodes.add(branchId);
+                    }
+                }
                 if (currentNode.parentId) {
                     currentNode = this.graphEditor.getNode(currentNode.parentId);
                     if (!currentNode && nodePath.length > 1) {

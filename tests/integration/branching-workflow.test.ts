@@ -107,6 +107,13 @@ describe('Branching Workflow Integration', () => {
       expect(branchNode).toBeDefined();
       expect(branchNode!.blocks.length).toBe(rootNode!.blocks.length);
       
+      // Verify branch is a sibling (same parent)
+      expect(branchNode!.parentId).toBe(rootNode!.parentId);
+      expect(branchNode!.branchedFrom).toBe(rootId);
+      
+      // Verify original node tracks the branch
+      expect(rootNode!.branches).toContain(branchNode!.id);
+      
       // Verify the edited content
       const branchPromptBlock = branchNode!.blocks.find(b => b.type === 'prompt');
       expect(branchPromptBlock?.content).toBe('Edited prompt content');

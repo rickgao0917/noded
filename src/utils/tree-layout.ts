@@ -44,12 +44,20 @@ export function calculateTreeLayout(
   const result = new Map(nodes);
   const nodeArray = Array.from(nodes.values());
   const childrenMap = new Map<string, GraphNode[]>();
+  const branchMap = new Map<string, GraphNode[]>();
   
-  // Build children map
+  // Build children map and branch map
   for (const node of nodeArray) {
-    if (node.parentId) {
+    if (node.parentId && !node.branchedFrom) {
+      // Regular child node (not a branch)
       const siblings = childrenMap.get(node.parentId) || [];
       childrenMap.set(node.parentId, [...siblings, node]);
+    }
+    
+    if (node.branchedFrom) {
+      // This is a branch node
+      const branches = branchMap.get(node.branchedFrom) || [];
+      branchMap.set(node.branchedFrom, [...branches, node]);
     }
   }
   
@@ -57,12 +65,13 @@ export function calculateTreeLayout(
   let rootOffset = 0;
   
   for (const rootNode of rootNodes) {
-    const subtreeWidth = calculateSubtreeWidth(rootNode, childrenMap, layout);
+    const subtreeWidth = calculateSubtreeWidth(rootNode, childrenMap, branchMap, layout);
     const rootX = rootOffset + subtreeWidth / 2;
     
     layoutSubtree(
       rootNode,
       childrenMap,
+      branchMap,
       layout,
       rootX,
       0,
@@ -88,21 +97,30 @@ export function calculateTreeLayout(
 function calculateSubtreeWidth(
   node: GraphNode,
   childrenMap: Map<string, GraphNode[]>,
+  branchMap: Map<string, GraphNode[]>,
   layout: TreeLayout
 ): number {
   const children = childrenMap.get(node.id) || [];
+  const branches = branchMap.get(node.id) || [];
   
+  // Calculate width needed for branches (they extend to the right)
+  const branchWidth = branches.length > 0 
+    ? (branches.length * (layout.nodeWidth + layout.horizontalSpacing))
+    : 0;
+  
+  // Calculate width for children
   if (children.length === 0) {
-    return layout.nodeWidth;
+    return layout.nodeWidth + branchWidth;
   }
   
   const childrenWidth = children.reduce((total, child) => {
-    return total + calculateSubtreeWidth(child, childrenMap, layout);
+    return total + calculateSubtreeWidth(child, childrenMap, branchMap, layout);
   }, 0);
   
   const spacingWidth = (children.length - 1) * layout.horizontalSpacing;
   
-  return Math.max(layout.nodeWidth, childrenWidth + spacingWidth);
+  // The total width is the max of the node's own width (including branches) and its children's width
+  return Math.max(layout.nodeWidth + branchWidth, childrenWidth + spacingWidth);
 }
 
 /**
@@ -120,6 +138,7 @@ function calculateSubtreeWidth(
 function layoutSubtree(
   node: GraphNode,
   childrenMap: Map<string, GraphNode[]>,
+  branchMap: Map<string, GraphNode[]>,
   layout: TreeLayout,
   centerX: number,
   depth: number,
@@ -134,6 +153,25 @@ function layoutSubtree(
   };
   result.set(node.id, updatedNode);
   
+  // Position branches to the right of the node
+  const branches = branchMap.get(node.id) || [];
+  for (let i = 0; i < branches.length; i++) {
+    const branch = branches[i];
+    if (branch) {
+      const branchX = centerX + layout.nodeWidth + (i + 1) * (layout.nodeWidth + layout.horizontalSpacing);
+      
+      layoutSubtree(
+        branch,
+        childrenMap,
+        branchMap,
+        layout,
+        branchX,
+        depth, // Same depth as original node
+        result
+      );
+    }
+  }
+  
   const children = childrenMap.get(node.id) || [];
   
   if (children.length === 0) {
@@ -141,7 +179,7 @@ function layoutSubtree(
   }
   
   const childWidths = children.map(child => 
-    calculateSubtreeWidth(child, childrenMap, layout)
+    calculateSubtreeWidth(child, childrenMap, branchMap, layout)
   );
   
   const totalChildWidth = childWidths.reduce((sum, width) => sum + width, 0);
@@ -160,6 +198,7 @@ function layoutSubtree(
       layoutSubtree(
         child,
         childrenMap,
+        branchMap,
         layout,
         childCenterX,
         depth + 1,

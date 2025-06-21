@@ -2280,6 +2280,7 @@ export class GraphEditor {
       this.logger.logLoop('updateConnections', 'nodes_processing', this.nodes.size);
       
       for (const [nodeId, node] of this.nodes) {
+        // Draw parent-child connections
         const hasParent = !!node.parentId;
         this.logger.logBranch('updateConnections', 'hasParent', hasParent, { nodeId });
         
@@ -2296,6 +2297,22 @@ export class GraphEditor {
             connectionsCreated++;
             
             this.logger.logVariableAssignment('updateConnections', 'connectionsCreated', connectionsCreated);
+          }
+        }
+        
+        // Draw branch connections (sibling relationships)
+        if (node.branches && node.branches.length > 0) {
+          this.logger.logBranch('updateConnections', 'hasBranches', true, { 
+            nodeId, 
+            branchCount: node.branches.length 
+          });
+          
+          for (const branchId of node.branches) {
+            const branchNode = this.nodes.get(branchId);
+            if (branchNode) {
+              this.drawBranchConnection(node, branchNode);
+              connectionsCreated++;
+            }
           }
         }
       }
@@ -2402,6 +2419,89 @@ export class GraphEditor {
         'CONNECTION_DRAW_FAILED',
         'Unable to draw connection line.',
         'drawConnection'
+      );
+    }
+  }
+
+  /**
+   * Draw an SVG connection line between sibling branch nodes
+   * 
+   * @param original - The original GraphNode
+   * @param branch - The branch GraphNode
+   * @private
+   */
+  private drawBranchConnection(original: GraphNode, branch: GraphNode): void {
+    this.logger.logFunctionEntry('drawBranchConnection', { 
+      originalId: original.id, 
+      branchId: branch.id 
+    });
+
+    try {
+      this.validator.validateGraphNode(original, 'drawBranchConnection');
+      this.validator.validateGraphNode(branch, 'drawBranchConnection');
+
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      
+      // Get actual node elements to determine real dimensions
+      const originalEl = document.getElementById(original.id);
+      const branchEl = document.getElementById(branch.id);
+      
+      let originalWidth = this.NODE_WIDTH;
+      let originalHeight = this.NODE_HEIGHT;
+      let branchHeight = this.NODE_HEIGHT;
+      
+      if (originalEl) {
+        originalWidth = originalEl.offsetWidth || this.NODE_WIDTH;
+        originalHeight = originalEl.offsetHeight || this.NODE_HEIGHT;
+      }
+      
+      if (branchEl) {
+        branchHeight = branchEl.offsetHeight || this.NODE_HEIGHT;
+      }
+      
+      // Calculate connection points - horizontal connection from right of original to left of branch
+      const originalRightX = original.position.x + originalWidth;
+      const originalCenterY = original.position.y + originalHeight / 2;
+      const branchLeftX = branch.position.x;
+      const branchCenterY = branch.position.y + branchHeight / 2;
+      
+      // Create a curved path for branch connection
+      const midX = (originalRightX + branchLeftX) / 2;
+      const pathData = `M ${originalRightX} ${originalCenterY} C ${midX} ${originalCenterY} ${midX} ${branchCenterY} ${branchLeftX} ${branchCenterY}`;
+      
+      line.setAttribute('d', pathData);
+      line.setAttribute('class', 'connection-line branch-connection');
+      line.setAttribute('stroke-dasharray', '5,5'); // Dashed line to distinguish from parent-child connections
+      
+      // Check if appendChild is available before using it
+      if (this.connectionsEl && typeof this.connectionsEl.appendChild === 'function') {
+        this.connectionsEl.appendChild(line);
+      } else {
+        this.logger.logWarn('SVG appendChild not available, skipping branch connection rendering', 'drawBranchConnection');
+      }
+      
+      this.logger.logInfo('Branch connection drawn successfully', 'drawBranchConnection', {
+        originalId: original.id,
+        branchId: branch.id,
+        pathLength: pathData.length
+      });
+      
+      this.logger.logFunctionExit('drawBranchConnection', { 
+        originalId: original.id, 
+        branchId: branch.id 
+      });
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'drawBranchConnection', { 
+        originalId: original.id, 
+        branchId: branch.id 
+      });
+      
+      throw this.errorFactory.createDOMError(
+        `Failed to draw branch connection between ${original.id} and ${branch.id}`,
+        'BRANCH_CONNECTION_DRAW_FAILED',
+        'Unable to draw branch connection line.',
+        'drawBranchConnection'
       );
     }
   }

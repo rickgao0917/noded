@@ -622,6 +622,20 @@
             fill: none;
             opacity: 0.6;
         }
+        
+        /* Branch connections - horizontal sibling relationships */
+        .connection-line.branch-connection {
+            stroke: #4a6a8a;
+            stroke-dasharray: 5,5;
+            opacity: 0.5;
+            animation: dash 20s linear infinite;
+        }
+        
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -100;
+            }
+        }
 
         .controls {
             position: absolute;

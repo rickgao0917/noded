@@ -121,18 +121,24 @@ export class NodeBranchingService {
                 if (blockIndex < newNode.blocks.length && newNode.blocks[blockIndex]) {
                     newNode.blocks[blockIndex].content = newContent;
                 }
-                // The branch should be a child of the node being edited
-                // Note: originalNode was already validated at the beginning of this method
-                // Set the branch as a child of the original node
-                const branchNode = Object.assign(Object.assign({}, newNode), { parentId: nodeId, depth: originalNode.depth + 1 });
-                // Add to original node's children
-                originalNode.children.push(branchNode.id);
+                // The branch should be a sibling of the node being edited
+                // It shares the same parent but is not directly connected to the parent
+                // Set the branch as a sibling of the original node
+                const branchNode = Object.assign(Object.assign({}, newNode), { parentId: originalNode.parentId, depth: originalNode.depth, 
+                    // Add a reference to the original node this was branched from
+                    branchedFrom: nodeId });
                 // Add to the branching service's nodes map
                 this.nodes.set(branchNode.id, branchNode);
-                this.logger.logBranch('createBranchFromEdit', 'branch_created_as_child', true, {
+                // Store the branch relationship (original node tracks its branches)
+                if (!originalNode.branches) {
+                    originalNode.branches = [];
+                }
+                originalNode.branches.push(branchNode.id);
+                this.logger.logBranch('createBranchFromEdit', 'branch_created_as_sibling', true, {
                     originalNodeId: nodeId,
                     branchNodeId: branchNode.id,
-                    parentId: branchNode.parentId
+                    parentId: branchNode.parentId,
+                    branchedFrom: nodeId
                 });
                 newNode = branchNode;
                 // Create branch metadata

@@ -149,7 +149,7 @@ describe('NodeBranchingService', () => {
       ).rejects.toThrow(ValidationError);
     });
     
-    it('should set parent relationship correctly - branch as child of edited node', async () => {
+    it('should set parent relationship correctly - branch as sibling of edited node', async () => {
       const result = await service.createBranchFromEdit(
         'node-2' as NodeId,
         'block-4' as BlockId,
@@ -158,15 +158,18 @@ describe('NodeBranchingService', () => {
       );
       
       const newNode = nodes.get(result.newNodeId);
-      // The branch should be a child of node-2 (the edited node)
-      expect(newNode!.parentId).toBe('node-2');
+      // The branch should be a sibling of node-2 (same parent)
+      expect(newNode!.parentId).toBe('node-1');
       
-      // node-2 should have the new branch as a child
+      // The branch should reference the original node it was branched from
+      expect(newNode!.branchedFrom).toBe('node-2');
+      
+      // node-2 should track this branch
       const editedNode = nodes.get('node-2');
-      expect(editedNode!.children).toContain(result.newNodeId);
+      expect(editedNode!.branches).toContain(result.newNodeId);
     });
     
-    it('should handle root node branching - branch as child of root', async () => {
+    it('should handle root node branching - branch as sibling of root', async () => {
       // node-1 already has parentId: null, so it's a root node
       const result = await service.createBranchFromEdit(
         'node-1' as NodeId,
@@ -176,12 +179,15 @@ describe('NodeBranchingService', () => {
       );
       
       const newNode = nodes.get(result.newNodeId);
-      // The branch should be a child of node-1 (the edited root node)
-      expect(newNode!.parentId).toBe('node-1');
+      // The branch should also be a root node (sibling at same level)
+      expect(newNode!.parentId).toBe(null);
       
-      // node-1 should have the new branch as a child
+      // The branch should reference the original node
+      expect(newNode!.branchedFrom).toBe('node-1');
+      
+      // node-1 should track this branch
       const editedNode = nodes.get('node-1');
-      expect(editedNode!.children).toContain(result.newNodeId);
+      expect(editedNode!.branches).toContain(result.newNodeId);
     });
   });
   
