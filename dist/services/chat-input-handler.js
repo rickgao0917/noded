@@ -13,9 +13,9 @@ export class ChatInputHandler {
         this.lastCommandTime = 0;
         /**
          * Regular expression for parsing chat commands.
-         * Matches /prompt or /md followed by whitespace and content.
+         * Matches /prompt or /md followed by whitespace and content (including multi-line).
          */
-        this.COMMAND_REGEX = /^(\/prompt|\/md)\s+(.+)$/;
+        this.COMMAND_REGEX = /^(\/prompt|\/md)\s+([\s\S]+)$/;
         this.logger = new Logger('ChatInputHandler');
         this.logger.logFunctionEntry('constructor');
         this.logger.logFunctionExit('constructor');
@@ -196,11 +196,11 @@ export class ChatInputHandler {
         this.logger.logFunctionEntry('sanitizeContent', { contentLength: content.length });
         try {
             // First, normalize whitespace
+            // Note: We don't trim() here to preserve code block formatting
             let sanitized = content
                 .replace(/\r\n/g, '\n') // Normalize line endings
                 .replace(/\r/g, '\n') // Handle old Mac line endings
-                .replace(/\t/g, '    ') // Convert tabs to spaces
-                .trim(); // Remove leading/trailing whitespace
+                .replace(/\t/g, '    '); // Convert tabs to spaces
             // For markdown content, we want to preserve most formatting
             // but still prevent XSS attacks
             if (content.includes('<script') || content.includes('javascript:')) {

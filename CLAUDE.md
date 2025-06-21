@@ -14,6 +14,14 @@ This is a graph-based node editor built with TypeScript that renders an interact
 - Updated all constants to SCREAMING_SNAKE_CASE convention
 - Reorganized directory structure for better maintainability
 
+**Latest Updates (2025-01-21):**
+- **Chat Interface Integration**: Double-click nodes to open conversation panel
+- **Real-time Streaming**: Chat and nodes sync during LLM response generation
+- **Multi-line Markdown Support**: Full support for code blocks and complex markdown in chat
+- **Auto-layout Improvements**: Zero-collision layout with automatic zoom to fit all nodes
+- **Enhanced UX**: Controls reposition when chat opens, auto-layout on node creation
+- **Empty Node Creation**: Nodes start empty and populate only when prompts are submitted
+
 ## Development Commands
 
 **Build and Development:**
@@ -427,13 +435,15 @@ tests/
   - Zoom controls integrated with existing pan and drag functionality
   - Reset View also resets zoom to default (1x)
 
-**Auto-Layout System:**
+**Auto-Layout System (Enhanced 2025-01-21):**
 - **Intelligent Tree Layout**: Auto Layout button that reorganizes the entire graph with optimal spacing
-- **Dynamic Spacing**: Prevents node overlapping with configurable horizontal (200px) and vertical (300px) spacing
+- **Zero Collision Guarantee**: Increased spacing (250px horizontal, 150px vertical) ensures nodes never overlap
+- **Automatic Zoom to Fit**: Automatically adjusts zoom level to fit all nodes in viewport
 - **Multiple Root Support**: Handles graphs with multiple root nodes, spacing them horizontally
 - **Animated Transitions**: Smooth 0.5s animations when nodes move to new positions
-- **View Centering**: Automatically centers the view on the graph after layout
+- **Auto-trigger on Chat Actions**: Automatically runs when nodes are added from conversation
 - **Adaptive Heights**: Layout algorithm considers actual node heights including collapsed/expanded states
+- **Smart Viewport Management**: Calculates bounding box and adjusts both zoom and pan for optimal viewing
 
 **Enhanced Node Functionality:**
 - **Node Collapsing**: 
@@ -486,6 +496,36 @@ tests/
 - Added `overflow: visible` to SVG elements for proper line display
 - Improved SVG element initialization with proper width/height attributes
 - Fixed overlapping issues in auto-layout with proper dimension calculations
+
+### Chat Interface Implementation (2025-01-21)
+
+**Major Chat Features:**
+- **Double-Click to Open**: Double-clicking any node opens the chat panel showing the full conversation thread
+- **Command-Based Input**: Use `/prompt` for prompts and `/md` for markdown notes
+- **Multi-line Support**: Full support for multi-line content including code blocks (use Ctrl+Enter to send)
+- **Real-time Streaming**: Responses stream to both chat and nodes simultaneously
+- **Markdown Rendering**: All markdown content is rendered with syntax highlighting
+- **Edit Mode**: Double-click messages to edit and create new branches
+- **Auto-layout Integration**: Nodes automatically reorganize when added from chat
+- **Responsive Controls**: UI controls reposition when chat panel opens
+
+**Chat Commands:**
+- `/prompt [content]` - Send a prompt to the LLM
+- `/md [content]` - Add markdown notes to the conversation
+- Multi-line input supported with Enter for new lines, Ctrl+Enter to send
+- Code blocks with proper indentation preserved
+
+**Streaming Synchronization:**
+- Prompts appear immediately in chat when submitted
+- Response content streams in real-time to both chat and node
+- No delay between chat updates and node updates
+- Automatic preview mode for streamed responses
+
+**UI Adaptations:**
+- Canvas automatically shrinks to 60% width when chat opens
+- Zoom automatically reduces to 65% to fit more nodes
+- Control buttons and zoom controls shift left to remain accessible
+- Smooth transitions for all layout changes
 
 ### Simplified UI Implementation (2025-06-19)
 
@@ -647,6 +687,17 @@ This section provides a comprehensive overview of all files, their purposes, and
   - `updateConnections()` - SVG connection line rendering between parent/child nodes
   - `handlePreviewToggle()` - Switch between raw and preview modes
 
+**`src/components/chat-interface.ts`** - Chat Panel UI Component
+- **Primary class**: `ChatInterface` - manages the conversational UI panel
+- **Key methods**:
+  - `openChatForNode(nodeId)` - Opens chat panel showing conversation thread
+  - `handlePromptCommand(content)` - Processes /prompt commands with streaming
+  - `handleMarkdownCommand(content)` - Processes /md commands
+  - `toggleMessagePreviewMode()` - Switches between edit and preview modes
+  - `createBranchFromEdit()` - Creates new branches from edited messages
+  - `updateStreamingMessage()` - Real-time updates during LLM streaming
+  - `adjustCanvasLayout()` - Manages canvas resizing and zoom when chat opens
+
 ### Services
 
 **`src/services/gemini-service.ts`** - AI Integration Service
@@ -667,6 +718,29 @@ This section provides a comprehensive overview of all files, their purposes, and
   - `showRenderedContent()` - Markdown rendering and display
   - `showRawContent()` - Switch back to textarea mode
   - Height preservation during mode switches for consistent sizing
+
+**`src/services/conversation-manager.ts`** - Conversation Flow Management
+- **Primary class**: `ConversationManager` - manages conversation threads and node associations
+- **Key methods**:
+  - `buildThreadFromNodeToRoot(nodeId)` - Constructs conversation thread from node hierarchy
+  - `submitPromptForNode(nodeId, content, onStreamingUpdate)` - Handles prompt submission with streaming
+  - `createChildNodeForPrompt()` - Creates new nodes for conversation branches
+  - `associateMarkdownWithPreviousPrompt()` - Links markdown notes to prompts
+
+**`src/services/chat-input-handler.ts`** - Chat Command Processing
+- **Primary class**: `ChatInputHandler` - parses and validates chat commands
+- **Key features**:
+  - Multi-line command parsing with `[\s\S]+` regex pattern
+  - Content sanitization while preserving formatting
+  - Rate limiting and validation
+  - Support for `/prompt` and `/md` commands
+
+**`src/services/graph-synchronizer.ts`** - Graph-Chat Synchronization
+- **Primary class**: `GraphSynchronizer` - ensures consistency between chat and graph views
+- **Key methods**:
+  - `syncNewChildNode()` - Updates graph when nodes added from chat
+  - `syncNodeBlockAddition()` - Syncs markdown blocks between views
+  - Auto-triggers layout reorganization on node creation
 
 ### Utilities
 

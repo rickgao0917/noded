@@ -20,9 +20,9 @@ export class ChatInputHandler {
   
   /**
    * Regular expression for parsing chat commands.
-   * Matches /prompt or /md followed by whitespace and content.
+   * Matches /prompt or /md followed by whitespace and content (including multi-line).
    */
-  private readonly COMMAND_REGEX = /^(\/prompt|\/md)\s+(.+)$/;
+  private readonly COMMAND_REGEX = /^(\/prompt|\/md)\s+([\s\S]+)$/;
   
   constructor() {
     this.logger = new Logger('ChatInputHandler');
@@ -227,11 +227,11 @@ export class ChatInputHandler {
     
     try {
       // First, normalize whitespace
+      // Note: We don't trim() here to preserve code block formatting
       let sanitized = content
         .replace(/\r\n/g, '\n')  // Normalize line endings
         .replace(/\r/g, '\n')    // Handle old Mac line endings
-        .replace(/\t/g, '    ')  // Convert tabs to spaces
-        .trim();                 // Remove leading/trailing whitespace
+        .replace(/\t/g, '    '); // Convert tabs to spaces
       
       // For markdown content, we want to preserve most formatting
       // but still prevent XSS attacks

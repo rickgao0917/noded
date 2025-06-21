@@ -185,7 +185,7 @@ export class ChatInterface {
             this.inputContainerElement.className = 'chat-input-container';
             this.inputElement = document.createElement('textarea');
             this.inputElement.className = 'chat-input';
-            this.inputElement.placeholder = 'Type /prompt or /md followed by your message...';
+            this.inputElement.placeholder = 'Type /prompt or /md followed by your message... (Ctrl+Enter to send, Enter for new line)';
             this.inputElement.setAttribute('aria-label', DEFAULT_ACCESSIBILITY_OPTIONS.ariaLabels.inputField);
             this.inputElement.setAttribute('rows', '3');
             this.sendButtonElement = document.createElement('button');
