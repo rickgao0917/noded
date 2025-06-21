@@ -27,6 +27,8 @@ import {
   DEFAULT_KEYBOARD_SHORTCUTS,
   DEFAULT_ACCESSIBILITY_OPTIONS
 } from '../types/chat-ui.types.js';
+import { EditSource } from '../types/branching.types.js';
+import { NodeId, BlockId } from '../types/branded.types.js';
 
 /**
  * Main chat interface component that provides a panel for conversational interaction
@@ -1028,39 +1030,69 @@ export class ChatInterface {
     this.logger.logFunctionEntry('createBranchFromEdit', { nodeId, messageType, contentLength: newContent.length });
     
     try {
-      // Create a new child node from the current node
-      const newNodeId = this.graphEditor.addChild(nodeId);
+      const branchingService = this.graphEditor.getBranchingService();
+      const versionHistoryManager = this.graphEditor.getVersionHistoryManager();
       
-      if (messageType === ChatMessageType.ASSISTANT_RESPONSE) {
-        // For edited responses, create a new response block
-        const node = this.graphEditor.getNode(newNodeId);
+      // Handle different message types
+      if (messageType === ChatMessageType.USER_PROMPT) {
+        // For prompts, find the prompt block and create a branch
+        const node = this.graphEditor.getNode(nodeId);
         if (node) {
-          // Update the response block with new content
+          const promptBlock = node.blocks.find(b => b.type === 'prompt');
+          if (promptBlock) {
+            const branchResult = await branchingService.createBranchFromEdit(
+              nodeId as NodeId,
+              promptBlock.id as BlockId,
+              newContent,
+              EditSource.CHAT_INTERFACE
+            );
+            
+            if (branchResult.success) {
+              versionHistoryManager.recordBranch(branchResult.branchMetadata);
+              await this.openChatForNode(branchResult.newNodeId);
+              
+              this.logger.logInfo('Prompt branch created', 'createBranchFromEdit', {
+                originalNodeId: nodeId,
+                newNodeId: branchResult.newNodeId
+              });
+            }
+          }
+        }
+      } else if (messageType === ChatMessageType.ASSISTANT_RESPONSE) {
+        // For responses, find the response block and create a branch
+        const node = this.graphEditor.getNode(nodeId);
+        if (node) {
           const responseBlock = node.blocks.find(b => b.type === 'response');
           if (responseBlock) {
-            this.graphEditor.updateBlockContent(newNodeId, node.blocks.indexOf(responseBlock), newContent);
+            const branchResult = await branchingService.createBranchFromEdit(
+              nodeId as NodeId,
+              responseBlock.id as BlockId,
+              newContent,
+              EditSource.CHAT_INTERFACE
+            );
+            
+            if (branchResult.success) {
+              versionHistoryManager.recordBranch(branchResult.branchMetadata);
+              await this.openChatForNode(branchResult.newNodeId);
+              
+              this.logger.logInfo('Response branch created', 'createBranchFromEdit', {
+                originalNodeId: nodeId,
+                newNodeId: branchResult.newNodeId
+              });
+            }
           }
         }
       } else if (messageType === ChatMessageType.USER_MARKDOWN) {
-        // For edited markdown, add as a new markdown block
-        this.graphEditor.addMarkdownBlock(newNodeId);
-        const node = this.graphEditor.getNode(newNodeId);
-        if (node && node.blocks.length > 0) {
-          const mdBlock = node.blocks[node.blocks.length - 1]; // Last block should be the new markdown
+        // For markdown, update in place (no branching)
+        const node = this.graphEditor.getNode(nodeId);
+        if (node) {
+          const mdBlock = node.blocks.find(b => b.type === 'markdown');
           if (mdBlock) {
-            const blockIndex = node.blocks.indexOf(mdBlock);
-            this.graphEditor.updateBlockContent(newNodeId, blockIndex, newContent);
+            await this.graphEditor.updateBlockContent(nodeId, mdBlock.id, newContent);
+            this.logger.logInfo('Markdown updated in place', 'createBranchFromEdit', { nodeId });
           }
         }
       }
-      
-      // Refresh the chat view with the new branch
-      await this.openChatForNode(newNodeId);
-      
-      this.logger.logInfo('Branch created from edit', 'createBranchFromEdit', { 
-        originalNodeId: nodeId, 
-        newNodeId 
-      });
       
     } catch (error) {
       this.logger.logError(error as Error, 'createBranchFromEdit');

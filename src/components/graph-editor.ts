@@ -23,6 +23,11 @@ import { MarkdownProcessor } from '../utils/markdown.js';
 import type {
   InlineChatConfig
 } from '../types/chat-interface.types.js';
+import { NodeBranchingService } from '../services/node-branching-service.js';
+import { BlockSizeManager } from '../services/block-size-manager.js';
+import { VersionHistoryManager } from '../services/version-history-manager.js';
+import { EditSource } from '../types/branching.types.js';
+import { NodeId, BlockId } from '../types/branded.types.js';
 
 // Mutable version of ChatContinuationState for internal state management
 interface MutableChatContinuationState {
@@ -43,6 +48,9 @@ export class GraphEditor {
   private readonly errorFactory: ErrorFactory;
   // private readonly previewManager: LivePreviewManager; // Legacy - replaced by previewToggleManager
   private readonly previewToggleManager: PreviewToggleManager;
+  private readonly branchingService: NodeBranchingService;
+  private readonly blockSizeManager: BlockSizeManager;
+  private readonly versionHistoryManager: VersionHistoryManager;
   
   // Node dimension constants (accounting for CSS max-width + padding + border)
   private readonly NODE_WIDTH = 436;  // max-width (400) + padding (32) + border (4)
@@ -108,6 +116,11 @@ export class GraphEditor {
       new MarkdownProcessor(),
       this.errorFactory
     );
+    
+    // Initialize branching services
+    this.branchingService = new NodeBranchingService(this.nodes);
+    this.blockSizeManager = new BlockSizeManager();
+    this.versionHistoryManager = new VersionHistoryManager();
     
     this.logger.logFunctionEntry('constructor', {
       canvasTagName: canvas?.tagName,
@@ -1721,7 +1734,7 @@ export class GraphEditor {
    * @param blockIndex - Index of the block to update
    * @param content - New content for the block
    */
-  public updateBlockContent(nodeId: string, blockIdOrIndex: string | number, content: string): void {
+  public async updateBlockContent(nodeId: string, blockIdOrIndex: string | number, content: string): Promise<void> {
     let blockIndex: number;
     let blockId: string;
     
@@ -1751,16 +1764,56 @@ export class GraphEditor {
       if (node && blockIndex >= 0 && blockIndex < node.blocks.length) {
         const block = node.blocks[blockIndex]!;
         const oldContent = block.content;
-        block.content = content;
         
-        this.logger.logVariableAssignment('updateBlockContent', 'blockContent', content.substring(0, 100));
-        this.logger.logInfo('Block content updated', 'updateBlockContent', {
-          nodeId,
-          blockIndex,
-          blockId: block.id,
-          oldLength: oldContent.length,
-          newLength: content.length
-        });
+        // Check if we should create a branch
+        if (this.branchingService.shouldCreateBranch(block.type, EditSource.NODE_BLOCK_DIRECT)) {
+          this.logger.logInfo('Creating branch for block edit', 'updateBlockContent', {
+            nodeId,
+            blockId: block.id,
+            blockType: block.type
+          });
+          
+          try {
+            // Create a branch instead of updating in place
+            const branchResult = await this.branchingService.createBranchFromEdit(
+              nodeId as NodeId,
+              block.id as BlockId,
+              content,
+              EditSource.NODE_BLOCK_DIRECT
+            );
+            
+            if (branchResult.success) {
+              // Record branch in version history
+              this.versionHistoryManager.recordBranch(branchResult.branchMetadata);
+              
+              // Re-render to show the new branch
+              this.renderNode(this.nodes.get(branchResult.newNodeId)!);
+              this.updateConnections();
+              
+              this.logger.logInfo('Branch created successfully', 'updateBlockContent', {
+                originalNodeId: nodeId,
+                newNodeId: branchResult.newNodeId
+              });
+            }
+          } catch (branchError) {
+            this.logger.logError(branchError as Error, 'updateBlockContent.branching');
+            // Fall through to regular update if branching fails
+            throw branchError;
+          }
+        } else {
+          // For markdown blocks, update in place
+          block.content = content;
+          
+          this.logger.logVariableAssignment('updateBlockContent', 'blockContent', content.substring(0, 100));
+          this.logger.logInfo('Block content updated in place', 'updateBlockContent', {
+            nodeId,
+            blockIndex,
+            blockId: block.id,
+            blockType: block.type,
+            oldLength: oldContent.length,
+            newLength: content.length
+          });
+        }
         
         this.logger.logFunctionExit('updateBlockContent', { nodeId, blockIndex, contentLength: content.length });
         
@@ -3249,6 +3302,10 @@ export class GraphEditor {
     this.logger.logFunctionEntry('handlePreviewToggle', { blockId, mode });
 
     try {
+      // Preserve block size before toggling
+      const targetMode = mode || 'rendered'; // Default to rendered if toggling
+      this.blockSizeManager.preserveBlockSize(blockId as BlockId, targetMode);
+      
       if (mode) {
         // Set specific mode
         await this.previewToggleManager.setBlockPreviewMode(blockId as any, mode, 'button');
@@ -3813,6 +3870,22 @@ export class GraphEditor {
    */
   public renderConnections(): void {
     this.updateConnections();
+  }
+
+  /**
+   * Get the branching service instance
+   * @returns The NodeBranchingService instance
+   */
+  public getBranchingService(): NodeBranchingService {
+    return this.branchingService;
+  }
+
+  /**
+   * Get the version history manager instance
+   * @returns The VersionHistoryManager instance
+   */
+  public getVersionHistoryManager(): VersionHistoryManager {
+    return this.versionHistoryManager;
   }
 
 

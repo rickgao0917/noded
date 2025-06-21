@@ -268,7 +268,7 @@ function setupGlobalEventHandlers(
     }
     
     // Set up textarea change handlers for block content updates
-    document.addEventListener('change', (e: Event) => {
+    document.addEventListener('change', async (e: Event) => {
       try {
         const target = e.target as HTMLTextAreaElement;
         const isTextarea = target.tagName === 'TEXTAREA';
@@ -285,11 +285,16 @@ function setupGlobalEventHandlers(
           });
           
           if (nodeId && blockIndex !== null) {
-            editor.updateBlockContent(nodeId, parseInt(blockIndex), target.value);
-            logger.logInfo('Block content updated via textarea', 'setupGlobalEventHandlers', {
-              nodeId,
-              blockIndex: parseInt(blockIndex)
-            });
+            try {
+              await editor.updateBlockContent(nodeId, parseInt(blockIndex), target.value);
+              logger.logInfo('Block content updated via textarea', 'setupGlobalEventHandlers', {
+                nodeId,
+                blockIndex: parseInt(blockIndex)
+              });
+            } catch (updateError) {
+              logger.logError(updateError as Error, 'setupGlobalEventHandlers.updateBlockContent');
+              handleUserFacingError(updateError as Error, 'Failed to update block content');
+            }
           }
         }
       } catch (error) {
@@ -445,3 +450,7 @@ export * from './types/graph.types.js';
 export { Logger } from './utils/logger.js';
 export { Validator } from './utils/type-guards.js';
 export * from './types/errors.js';
+export * from './types/branching.types.js';
+export { NodeBranchingService } from './services/node-branching-service.js';
+export { BlockSizeManager } from './services/block-size-manager.js';
+export { VersionHistoryManager } from './services/version-history-manager.js';
