@@ -1297,31 +1297,47 @@ export class GraphEditor {
     try {
       const chain: string[] = [];
       let currentNode = this.nodes.get(nodeId);
+      const startNode = currentNode;
+      
+      // Keep track of nodes we should skip (original nodes that were branched from)
+      const nodesToSkip = new Set<string>();
       
       while (currentNode) {
-        // Handle branch nodes - use the branch instead of the original
+        chain.unshift(currentNode.id);
+        
+        // If this node was branched from another, mark the original to skip
         if (currentNode.branchedFrom) {
-          chain.unshift(currentNode.id);
-        } else if (!currentNode.branches || currentNode.branches.length === 0) {
-          // Regular node without branches
-          chain.unshift(currentNode.id);
-        } else {
-          // Skip original nodes that have branches (we're using the branch instead)
-          const isPartOfPath = chain.some(id => {
-            const node = this.nodes.get(id);
-            return node?.branchedFrom === currentNode!.id;
+          nodesToSkip.add(currentNode.branchedFrom);
+          this.logger.logInfo('Marking original node to skip', 'getConversationChain', {
+            branchId: currentNode.id,
+            originalId: currentNode.branchedFrom
           });
-          if (!isPartOfPath) {
-            chain.unshift(currentNode.id);
-          }
         }
         
         if (currentNode.parentId) {
           currentNode = this.nodes.get(currentNode.parentId);
+          // Skip nodes that were replaced by branches
+          while (currentNode && nodesToSkip.has(currentNode.id)) {
+            this.logger.logInfo('Skipping original node in favor of branch', 'getConversationChain', {
+              skippedId: currentNode.id
+            });
+            if (currentNode.parentId) {
+              currentNode = this.nodes.get(currentNode.parentId);
+            } else {
+              currentNode = undefined;
+            }
+          }
         } else {
           currentNode = undefined;
         }
       }
+      
+      this.logger.logInfo('Conversation chain built', 'getConversationChain', {
+        startNodeId: nodeId,
+        isBranch: !!startNode?.branchedFrom,
+        branchedFrom: startNode?.branchedFrom,
+        chain: chain
+      });
       
       this.logger.logFunctionExit('getConversationChain', { 
         nodeId, 
@@ -1723,7 +1739,9 @@ export class GraphEditor {
         nodeId,
         chainLength: chain.length,
         contextLength: context.length,
-        messageCount: contextParts.length
+        messageCount: contextParts.length,
+        chainNodes: chain,
+        contextPreview: context.substring(0, 200) + (context.length > 200 ? '...' : '')
       });
       
       this.logger.logFunctionExit('buildConversationContext', { 

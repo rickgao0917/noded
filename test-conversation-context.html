@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Conversation Context & Highlighting</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Conversation Context & Highlighting Test</h1>
+    
+    <div class="test-section">
+        <h2>Instructions</h2>
+        <div class="status info">
+            <p><strong>How to test the new features:</strong></p>
+            <ol>
+                <li>Open the main application (index.html)</li>
+                <li>Create a conversation chain:
+                    <ul>
+                        <li>Create a root node with a prompt (e.g., "What is JavaScript?")</li>
+                        <li>Submit to Gemini to get a response</li>
+                        <li>Add a child node with another prompt (e.g., "Can you give me an example?")</li>
+                        <li>Submit again - this will include the full conversation context</li>
+                    </ul>
+                </li>
+                <li>Test highlighting:
+                    <ul>
+                        <li><strong>Hover</strong> over any node to see light highlighting of its conversation chain</li>
+                        <li><strong>Click</strong> on a node to select it and see full highlighting of its chain</li>
+                    </ul>
+                </li>
+            </ol>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Expected Behavior</h2>
+        <div class="status success">
+            <p><strong>Conversation Context:</strong></p>
+            <ul>
+                <li>When submitting a prompt from a child node, the LLM receives the full conversation history</li>
+                <li>Only prompts and responses are included (not markdown blocks)</li>
+                <li>Context is formatted as: User: [prompt]\n\nAssistant: [response]\n\nUser: [new prompt]</li>
+            </ul>
+        </div>
+        
+        <div class="status success">
+            <p><strong>Chain Highlighting:</strong></p>
+            <ul>
+                <li>Light blue highlight on hover shows the conversation path</li>
+                <li>Stronger blue highlight when a node is selected</li>
+                <li>Only nodes in the direct path are highlighted (not branches)</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>What's Changed</h2>
+        <pre>
+1. CSS Added:
+   - .node.chain-highlight-light (hover effect)
+   - .node.chain-highlight-full (selection effect)
+
+2. New Methods in GraphEditor:
+   - getConversationChain() - Gets path from node to root
+   - highlightConversationChain() - Applies highlighting
+   - buildConversationContext() - Builds conversation text
+   - handleNodeMouseEnter/Leave() - Hover handlers
+
+3. Modified submitToLLM():
+   - Now builds full conversation context
+   - Sends context + new prompt to LLM
+   - Logs context information
+
+4. Event Listeners:
+   - mouseenter/mouseleave on nodes for highlighting
+   - Full chain highlight on node selection
+        </pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>Debug Info</h2>
+        <div class="status info">
+            <p>Open the browser console to see:</p>
+            <ul>
+                <li>Conversation context being built (look for "Submitting prompt with context")</li>
+                <li>Chain highlighting events (look for "handleNodeMouseEnter")</li>
+                <li>Context length and message count in logs</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Quick Actions</h2>
+        <button onclick="window.open('index.html', '_blank')">Open Main Application</button>
+        <button onclick="window.open('standalone.html', '_blank')">Open Standalone Version</button>
+    </div>
+</body>
+</html>

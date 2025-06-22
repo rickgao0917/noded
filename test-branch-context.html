@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Branch Context</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .step {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f9f9f9;
+            border-left: 3px solid #4CAF50;
+        }
+        .expected {
+            margin: 10px 0;
+            padding: 10px;
+            background: #e3f2fd;
+            border-left: 3px solid #2196F3;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        pre {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 3px solid #ffc107;
+            padding: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Branch Context Test Instructions</h1>
+    
+    <div class="test-section">
+        <h2>Test Scenario: Branch Node Context Inheritance</h2>
+        
+        <div class="step">
+            <h3>Step 1: Create Initial Conversation</h3>
+            <p>1. Open the application at <a href="http://localhost:8000" target="_blank">http://localhost:8000</a></p>
+            <p>2. Click "Add Root Node" to create a new node</p>
+            <p>3. Enter prompt: <code>What is the capital of France?</code></p>
+            <p>4. Click "Submit to Gemini" and wait for response (e.g., "The capital of France is Paris")</p>
+        </div>
+        
+        <div class="step">
+            <h3>Step 2: Add Child Node</h3>
+            <p>1. Click "Add Child" on the first node</p>
+            <p>2. Enter prompt: <code>Tell me more about it</code></p>
+            <p>3. Click "Submit to Gemini"</p>
+            <p>4. Open browser console (F12) and look for "Conversation context built" log</p>
+        </div>
+        
+        <div class="expected">
+            <h4>Expected Context (in console):</h4>
+            <pre>User: What is the capital of France?
+Assistant: The capital of France is Paris
+
+User: Tell me more about it</pre>
+        </div>
+        
+        <div class="step">
+            <h3>Step 3: Create a Branch by Editing Response</h3>
+            <p>1. Double-click on the response block in the second node (the one about Paris)</p>
+            <p>2. Change the response to something different, e.g., <code>Paris is a beautiful city known for the Eiffel Tower</code></p>
+            <p>3. Click outside the textarea to trigger the edit</p>
+            <p>4. A new sibling node (branch) should appear</p>
+        </div>
+        
+        <div class="step">
+            <h3>Step 4: Add Child to Branch Node</h3>
+            <p>1. Click "Add Child" on the branch node (the one with the edited response)</p>
+            <p>2. Enter prompt: <code>What else is it famous for?</code></p>
+            <p>3. Before clicking Submit, open the browser console</p>
+            <p>4. Click "Submit to Gemini"</p>
+            <p>5. Look for "Conversation context built" in the console</p>
+        </div>
+        
+        <div class="expected">
+            <h4>Expected Context for Branch (in console):</h4>
+            <pre>User: What is the capital of France?
+Assistant: The capital of France is Paris
+
+User: Tell me more about it
+Assistant: Paris is a beautiful city known for the Eiffel Tower
+
+User: What else is it famous for?</pre>
+            <p><strong>Note:</strong> The original response "The capital of France is Paris..." should NOT appear twice. The branch's edited response should replace the original.</p>
+        </div>
+        
+        <div class="warning">
+            <h4>⚠️ What to Check:</h4>
+            <ul>
+                <li>The conversation chain should include the branch node's content, not the original node's content</li>
+                <li>Check the "chainNodes" array in the console log - it should NOT include the original node that was branched from</li>
+                <li>The highlighting (hover over nodes) should show the correct path through the branch</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Additional Tests</h2>
+        
+        <div class="step">
+            <h3>Test Highlighting</h3>
+            <p>1. Hover over different nodes to see the conversation chain highlighting</p>
+            <p>2. When hovering over a branch node, only the branch path should be highlighted (not the original node)</p>
+            <p>3. Click on nodes to see full highlighting</p>
+        </div>
+        
+        <div class="step">
+            <h3>Test Multiple Branches</h3>
+            <p>1. Create multiple branches from the same node</p>
+            <p>2. Each branch should have its own independent context</p>
+            <p>3. Submitting from each branch should use only that branch's content</p>
+        </div>
+    </div>
+</body>
+</html>
