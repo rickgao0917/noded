@@ -638,6 +638,23 @@ export class GraphEditor {
                     this.logger.logError(error, 'renderNode.onDblClick', { nodeId: node.id });
                 }
             });
+            // Add mouse enter/leave handlers for conversation chain highlighting
+            nodeEl.addEventListener('mouseenter', () => {
+                try {
+                    this.handleNodeMouseEnter(node.id);
+                }
+                catch (error) {
+                    this.logger.logError(error, 'renderNode.onMouseEnter', { nodeId: node.id });
+                }
+            });
+            nodeEl.addEventListener('mouseleave', () => {
+                try {
+                    this.handleNodeMouseLeave();
+                }
+                catch (error) {
+                    this.logger.logError(error, 'renderNode.onMouseLeave', { nodeId: node.id });
+                }
+            });
             this.setupNodeDragging(nodeEl, node);
             try {
                 this.setupBlockResizing(nodeEl);
@@ -1012,12 +1029,160 @@ export class GraphEditor {
             if (nodeEl) {
                 nodeEl.classList.add('selected');
                 this.logger.logInfo('Added selection to node', 'selectNode', { nodeId: node.id });
+                // Highlight the conversation chain for the selected node
+                const chain = this.getConversationChain(node.id);
+                this.highlightConversationChain(chain, 'full');
             }
             this.logger.logFunctionExit('selectNode', { selectedNodeId: node.id });
         }
         catch (error) {
             this.logger.logError(error, 'selectNode', { nodeId: node.id });
             throw this.errorFactory.createNodeEditorError(`Failed to select node ${node.id}`, 'NODE_SELECT_FAILED', 'Unable to select the node.', 'selectNode', { nodeId: node.id });
+        }
+    }
+    /**
+     * Get the conversation chain (path) from a node back to root
+     *
+     * @param nodeId - The target node ID
+     * @returns Array of node IDs from root to target node
+     * @private
+     */
+    getConversationChain(nodeId) {
+        this.logger.logFunctionEntry('getConversationChain', { nodeId });
+        try {
+            const chain = [];
+            let currentNode = this.nodes.get(nodeId);
+            while (currentNode) {
+                // Handle branch nodes - use the branch instead of the original
+                if (currentNode.branchedFrom) {
+                    chain.unshift(currentNode.id);
+                }
+                else if (!currentNode.branches || currentNode.branches.length === 0) {
+                    // Regular node without branches
+                    chain.unshift(currentNode.id);
+                }
+                else {
+                    // Skip original nodes that have branches (we're using the branch instead)
+                    const isPartOfPath = chain.some(id => {
+                        const node = this.nodes.get(id);
+                        return (node === null || node === void 0 ? void 0 : node.branchedFrom) === currentNode.id;
+                    });
+                    if (!isPartOfPath) {
+                        chain.unshift(currentNode.id);
+                    }
+                }
+                if (currentNode.parentId) {
+                    currentNode = this.nodes.get(currentNode.parentId);
+                }
+                else {
+                    currentNode = undefined;
+                }
+            }
+            this.logger.logFunctionExit('getConversationChain', {
+                nodeId,
+                chainLength: chain.length
+            });
+            return chain;
+        }
+        catch (error) {
+            this.logger.logError(error, 'getConversationChain', { nodeId });
+            return [];
+        }
+    }
+    /**
+     * Highlight nodes in a conversation chain
+     *
+     * @param nodeIds - Array of node IDs to highlight
+     * @param highlightType - Type of highlighting ('light' or 'full')
+     * @private
+     */
+    highlightConversationChain(nodeIds, highlightType) {
+        this.logger.logFunctionEntry('highlightConversationChain', {
+            nodeIds,
+            highlightType
+        });
+        try {
+            // Clear any existing chain highlights
+            this.clearChainHighlights();
+            // Apply highlight to each node in the chain
+            const className = highlightType === 'light' ? 'chain-highlight-light' : 'chain-highlight-full';
+            for (const nodeId of nodeIds) {
+                const nodeEl = document.getElementById(nodeId);
+                if (nodeEl) {
+                    nodeEl.classList.add(className);
+                    this.logger.logDebug('Applied highlight to node', 'highlightConversationChain', {
+                        nodeId,
+                        className
+                    });
+                }
+            }
+            this.logger.logFunctionExit('highlightConversationChain', {
+                highlightedCount: nodeIds.length
+            });
+        }
+        catch (error) {
+            this.logger.logError(error, 'highlightConversationChain', { nodeIds });
+        }
+    }
+    /**
+     * Clear all conversation chain highlights
+     *
+     * @private
+     */
+    clearChainHighlights() {
+        this.logger.logFunctionEntry('clearChainHighlights');
+        try {
+            const highlightedNodes = document.querySelectorAll('.chain-highlight-light, .chain-highlight-full');
+            highlightedNodes.forEach(node => {
+                node.classList.remove('chain-highlight-light', 'chain-highlight-full');
+            });
+            this.logger.logFunctionExit('clearChainHighlights', {
+                clearedCount: highlightedNodes.length
+            });
+        }
+        catch (error) {
+            this.logger.logError(error, 'clearChainHighlights');
+        }
+    }
+    /**
+     * Handle mouse enter event for node hover highlighting
+     *
+     * @param nodeId - The node being hovered
+     * @private
+     */
+    handleNodeMouseEnter(nodeId) {
+        this.logger.logFunctionEntry('handleNodeMouseEnter', { nodeId });
+        try {
+            const chain = this.getConversationChain(nodeId);
+            this.highlightConversationChain(chain, 'light');
+            this.logger.logFunctionExit('handleNodeMouseEnter');
+        }
+        catch (error) {
+            this.logger.logError(error, 'handleNodeMouseEnter', { nodeId });
+        }
+    }
+    /**
+     * Handle mouse leave event to clear hover highlighting
+     *
+     * @private
+     */
+    handleNodeMouseLeave() {
+        this.logger.logFunctionEntry('handleNodeMouseLeave');
+        try {
+            // Clear light highlights but preserve full highlights if a node is selected
+            const lightHighlights = document.querySelectorAll('.chain-highlight-light');
+            lightHighlights.forEach(node => {
+                node.classList.remove('chain-highlight-light');
+            });
+            // Re-apply full highlights if there's a selected node
+            if (this.selectedNode) {
+                const chain = this.getConversationChain(this.selectedNode.id);
+                this.highlightConversationChain(chain, 'full');
+            }
+            this.logger.logFunctionExit('handleNodeMouseLeave');
+        }
+        catch (error) {
+            this.logger.logError(error, 'handleNodeMouseLeave');
         }
     }
     /**
@@ -1203,6 +1368,50 @@ export class GraphEditor {
         }
     }
     /**
+     * Build conversation context from a node's chain
+     *
+     * @param nodeId - The target node ID
+     * @returns Formatted conversation context string
+     * @private
+     */
+    buildConversationContext(nodeId) {
+        this.logger.logFunctionEntry('buildConversationContext', { nodeId });
+        try {
+            const chain = this.getConversationChain(nodeId);
+            const contextParts = [];
+            // Build context from all nodes in the chain
+            for (const chainNodeId of chain) {
+                const chainNode = this.nodes.get(chainNodeId);
+                if (!chainNode)
+                    continue;
+                // Only include prompt and response blocks (not markdown)
+                for (const block of chainNode.blocks) {
+                    if (block.type === 'prompt' && block.content.trim()) {
+                        contextParts.push(`User: ${block.content}`);
+                    }
+                    else if (block.type === 'response' && block.content.trim()) {
+                        contextParts.push(`Assistant: ${block.content}`);
+                    }
+                }
+            }
+            const context = contextParts.join('\n\n');
+            this.logger.logInfo('Conversation context built', 'buildConversationContext', {
+                nodeId,
+                chainLength: chain.length,
+                contextLength: context.length,
+                messageCount: contextParts.length
+            });
+            this.logger.logFunctionExit('buildConversationContext', {
+                contextLength: context.length
+            });
+            return context;
+        }
+        catch (error) {
+            this.logger.logError(error, 'buildConversationContext', { nodeId });
+            return '';
+        }
+    }
+    /**
      * Submit prompt to LLM and create response block
      *
      * @param nodeId - ID of node containing the prompt
@@ -1229,6 +1438,20 @@ export class GraphEditor {
                 if (!promptFound || !promptBlock.content.trim()) {
                     throw this.errorFactory.createValidationError('promptContent', promptBlock === null || promptBlock === void 0 ? void 0 : promptBlock.content, 'non-empty prompt', 'submitToLLM');
                 }
+                // Build conversation context
+                const conversationContext = this.buildConversationContext(nodeId);
+                // Construct the full prompt with context
+                let fullPrompt = promptBlock.content;
+                if (conversationContext) {
+                    // Only prepend context if there's conversation history
+                    fullPrompt = conversationContext + '\n\nUser: ' + promptBlock.content;
+                }
+                this.logger.logInfo('Submitting prompt with context', 'submitToLLM', {
+                    nodeId,
+                    contextLength: conversationContext.length,
+                    promptLength: promptBlock.content.length,
+                    fullPromptLength: fullPrompt.length
+                });
                 // Show loading indicator
                 this.showLoadingIndicator(nodeId);
                 try {
@@ -1236,7 +1459,7 @@ export class GraphEditor {
                     const responseBlockId = this.createResponseBlock(nodeId, '');
                     // Submit to Gemini service with streaming
                     let responseContent = '';
-                    yield geminiService.sendMessage(promptBlock.content, (chunk) => {
+                    yield geminiService.sendMessage(fullPrompt, (chunk) => {
                         responseContent += chunk;
                         this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
                         // Call the external streaming callback if provided

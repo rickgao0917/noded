@@ -380,8 +380,9 @@ describe('GraphEditor Component', () => {
         await editor.submitToLLM(nodeId);
         
         // Verify that sendMessage was called
+        // Note: submitToLLM now includes conversation context
         expect(mockGeminiService.sendMessage).toHaveBeenCalledWith(
-          'Test prompt',
+          expect.stringContaining('Test prompt'),
           expect.any(Function)
         );
         
