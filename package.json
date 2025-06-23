@@ -7,6 +7,7 @@
     "build": "tsc && node scripts/fix-imports.js",
     "build:server": "tsc -p tsconfig.server.json",
     "build:all": "npm run build && npm run build:server",
+    "clear-db": "node clear-database.js",
     "build:strict": "tsc --strict --noEmit && eslint . && npm run build",
     "dev": "tsc --watch",
     "serve": "python3 -m http.server 8000",

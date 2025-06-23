@@ -218,8 +218,10 @@ function setupGlobalEventHandlers(
     logger.logVariableAssignment('setupGlobalEventHandlers', 'zoomOutBtnFound', !!zoomOutBtn);
     
     if (addRootBtn) {
+      console.log('[DEBUG] Adding event listener to addRootBtn');
       addRootBtn.addEventListener('click', () => {
         try {
+          console.log('[DEBUG] addRootBtn clicked!');
           logger.logUserInteraction('add_root_click', 'addRootBtn');
           editor.addRootNode();
           logger.logInfo('Root node added successfully via button', 'setupGlobalEventHandlers');

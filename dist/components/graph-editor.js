@@ -2222,6 +2222,8 @@ export class GraphEditor {
     addRootNode() {
         const startTime = performance.now();
         this.logger.logFunctionEntry('addRootNode');
+        // Debug logging
+        console.log('[DEBUG] addRootNode called, current node count:', this.nodes.size);
         try {
             const rootId = this.createNode(null, [
                 { id: `root_${Date.now()}_prompt`, type: 'prompt', content: '', position: 0 }
@@ -2231,6 +2233,8 @@ export class GraphEditor {
                 rootId,
                 totalNodes: this.nodes.size
             });
+            // Debug logging
+            console.log('[DEBUG] addRootNode completed, new node count:', this.nodes.size, 'created node:', rootId);
             this.layoutTree();
             // Update the collapse toggle button since we added a new node
             this.updateCollapseToggleButton();

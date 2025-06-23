@@ -63,6 +63,9 @@ export class WorkspaceSidebar {
       <div class="workspace-list" id="workspace-list">
         <div class="workspace-loading">Loading...</div>
       </div>
+      <div class="workspace-sidebar-footer">
+        <button class="workspace-logout-btn" id="logout-btn" title="Logout">🚪 Logout</button>
+      </div>
     `;
 
     container.appendChild(sidebar);
@@ -242,6 +245,30 @@ export class WorkspaceSidebar {
         body.has-workspace-sidebar .controls {
           left: 270px;
         }
+
+        .workspace-sidebar-footer {
+          padding: 1rem;
+          border-top: 1px solid #ddd;
+          background: white;
+          margin-top: auto;
+        }
+
+        .workspace-logout-btn {
+          width: 100%;
+          padding: 0.75rem;
+          background: #dc3545;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.875rem;
+          font-weight: 500;
+          transition: background-color 0.2s;
+        }
+
+        .workspace-logout-btn:hover {
+          background: #c82333;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -257,6 +284,11 @@ export class WorkspaceSidebar {
     const newBtn = document.getElementById('new-workspace-btn');
     if (newBtn) {
       newBtn.addEventListener('click', () => this.createNewWorkspace());
+    }
+    
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', () => this.handleLogout());
     }
   }
 
@@ -529,5 +561,38 @@ export class WorkspaceSidebar {
 
   public async saveWorkspace(): Promise<void> {
     await this.saveCurrentWorkspace();
+  }
+
+  private async handleLogout(): Promise<void> {
+    this.logger.logFunctionEntry('handleLogout');
+    
+    if (!confirm('Are you sure you want to logout?')) {
+      return;
+    }
+    
+    try {
+      // Save current workspace before logout
+      await this.saveCurrentWorkspace();
+      
+      // Call logout API
+      await this.sessionManager.makeAuthenticatedRequest('/api/auth/logout', {
+        method: 'POST'
+      });
+      
+      // Clear local session
+      localStorage.removeItem('sessionToken');
+      
+      // Reload page to show login screen
+      window.location.reload();
+      
+      this.logger.logInfo('Logout successful', 'handleLogout');
+    } catch (error) {
+      this.logger.logError(error as Error, 'handleLogout');
+      // Even if API call fails, clear local session and reload
+      localStorage.removeItem('sessionToken');
+      window.location.reload();
+    } finally {
+      this.logger.logFunctionExit('handleLogout');
+    }
   }
 }

@@ -6,15 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes. Each node contains multiple blocks (prompt, response, markdown) and represents a conversation state, with child nodes representing edits or variations creating a guaranteed tree structure with DOM-based rendering.
 
-**Recent Refactoring (2025-01-20):**
-- Achieved full compliance with ts_readme.xml TypeScript standards
-- Improved test coverage from 46.89% to 54.48%
-- Eliminated all `any` type usage with proper type definitions
-- Implemented branded types for type-safe domain values
-- Updated all constants to SCREAMING_SNAKE_CASE convention
-- Reorganized directory structure for better maintainability
+**Major Updates (2025-06-23):**
+- **User Authentication System**: Full login/register system with SQLite database
+- **Workspace Management**: Multi-workspace support with sidebar file explorer
+- **Gemini API Integration**: Real-time streaming AI responses with proper API key configuration
+- **Smart Branching Logic**: Fixed branching to only occur when editing existing content, not on first-time prompts
+- **Logout Functionality**: Clean logout with workspace auto-save and session management
+- **Database Management**: Tools for clearing and resetting database state
 
-**Latest Updates (2025-01-21):**
+**Previous Updates (2025-01-21):**
 - **Chat Interface Integration**: Double-click nodes to open conversation panel
 - **Real-time Streaming**: Chat and nodes sync during LLM response generation
 - **Multi-line Markdown Support**: Full support for code blocks and complex markdown in chat
@@ -29,12 +29,20 @@ This is a graph-based node editor built with TypeScript that renders an interact
 **Build and Development:**
 ```bash
 npm run build           # Compile TypeScript to dist/
+npm run build:server    # Compile server TypeScript to dist-server/
+npm run build:all       # Build both client and server
 npm run build:strict    # Full build with strict checking and linting
 npm run dev             # Watch mode compilation  
-npm run serve           # Start Python HTTP server on port 8000
-npm run start           # Build and start Python server
+npm run server          # Start Express server with authentication (recommended)
+npm run serve           # Start Python HTTP server on port 8000 (legacy)
+npm run start           # Build and start Python server (legacy)
 npm run typecheck       # Type checking without compilation
 npm run lint            # ESLint with zero warnings tolerance
+```
+
+**Database Management:**
+```bash
+npm run clear-db        # Clear SQLite database (removes all users, sessions, workspaces)
 ```
 
 **Testing Commands:**
@@ -56,9 +64,15 @@ npm run format:check    # Check code formatting
 ```
 
 **Local Development Workflow:**
+1. `npm run server` - Build and start Express server with authentication
+2. Open `http://localhost:8000` 
+3. Register a new account or login with existing credentials
+4. Create and manage workspaces through the sidebar
+
+**Alternative (Legacy) Workflow:**
 1. `npm run build` - Compile TypeScript
-2. `npm run serve` - Start Python server on port 8000 (or use alternative port if 8000 is busy)
-3. Open `http://localhost:8000` for the modular version or open `standalone.html` directly in browser
+2. `npm run serve` - Start Python server on port 8000 (no authentication)
+3. Open `standalone.html` directly in browser (no server needed)
 
 **Docker Development:**
 ```bash
@@ -85,6 +99,38 @@ If port 8000 is in use locally:
 - Or use Docker which runs on port 6001
 
 ## Architecture
+
+### Authentication & Workspace System
+
+**User Authentication** (`server-src/services/authentication-service.ts`):
+- SQLite-based user management with password hashing (crypto.pbkdf2Sync)
+- Session-based authentication with 24-hour token expiration
+- Secure session validation middleware for all API endpoints
+- User registration with username/password validation
+
+**Database Layer** (`server-src/services/database-service.ts`):
+- SQLite database with tables: users, user_sessions, workspaces
+- Soft-delete for workspaces (prefixed with `_deleted_`)
+- Automatic session cleanup for expired tokens
+- Foreign key relationships for data integrity
+
+**Workspace Management** (`server-src/services/workspace-service.ts`):
+- Multi-workspace support per user with unique names
+- Workspace CRUD operations (create, read, update, delete)
+- Auto-save functionality with 5-second debounce
+- Size limits (10MB per workspace) and validation
+
+**Frontend Session Management** (`src/services/session-manager.ts`):
+- localStorage-based session token management
+- Authenticated request wrapper for API calls
+- Auto-logout on session expiration
+- Workspace auto-save integration
+
+**Workspace Sidebar** (`src/components/workspace-sidebar.ts`):
+- Left sidebar showing all user workspaces
+- Create, rename, delete workspace operations
+- Visual indication of active workspace
+- Logout button with confirmation dialog
 
 ### Core Design Principles
 
@@ -300,13 +346,20 @@ This project strictly adheres to the comprehensive TypeScript coding standards d
 - User-friendly error messages with technical details separated
 - Performance tracking and response time monitoring
 - Secure API key configuration via external config file
+- Smart detection of API key issues (401 errors, missing/invalid keys)
 
 **LLM Submission Workflow:**
 - "Submit to Gemini" button on each node
 - Automatic loading state management during API calls
 - Streaming response display with real-time updates
-- Auto-creation of response blocks after successful submission
+- Response blocks created only after successful API connection (prevents empty blocks on errors)
 - Error recovery with user-friendly messages
+
+**Smart Branching Logic:**
+- Branching only occurs when editing existing content with responses
+- First-time prompt entry does not create branches
+- Response editing creates version branches
+- Markdown editing updates in-place without branching
 
 ### API Configuration
 
@@ -330,6 +383,40 @@ This project strictly adheres to the comprehensive TypeScript coding standards d
 - Browser: Loads from `window.NODE_EDITOR_CONFIG` object
 - Node.js: Can use `GEMINI_API_KEY` environment variable
 - Fallback error messages guide users to proper setup
+
+## Express Server & API Endpoints
+
+**Server Architecture** (`server.js`):
+- Express.js server with CORS and JSON body parsing
+- SQLite database integration with automatic initialization
+- Session-based authentication middleware
+- Static file serving for client application
+- Graceful shutdown handling with database cleanup
+
+**Authentication Endpoints:**
+```
+POST /api/auth/register    # User registration
+POST /api/auth/login       # User login
+POST /api/auth/logout      # User logout (authenticated)
+GET  /api/auth/session     # Validate current session
+```
+
+**Workspace Management Endpoints:**
+```
+GET    /api/workspaces                     # List user workspaces
+POST   /api/workspaces                     # Create new workspace
+GET    /api/workspaces/:workspaceId        # Get specific workspace
+PUT    /api/workspaces/:workspaceId        # Update workspace
+DELETE /api/workspaces/:workspaceId        # Delete workspace
+GET    /api/workspaces/default/get-or-create # Get or create default workspace
+```
+
+**Security Features:**
+- Bearer token authentication for all protected endpoints
+- Session validation middleware (`requireAuth`)
+- Password hashing with salt for secure storage
+- Session token expiration (24 hours)
+- Automatic cleanup of expired sessions
 
 ## Testing Infrastructure
 
@@ -1022,3 +1109,60 @@ fetch('/api/submit', {
 - README files for major components
 - Inline comments for business logic
 - Comprehensive CLAUDE.md for AI assistance
+
+## Troubleshooting
+
+### Common Issues
+
+**Authentication Problems:**
+- **401 Unauthorized errors**: Session expired or invalid. Clear localStorage and re-login.
+- **Database cleared**: After `npm run clear-db`, restart server and register new account.
+- **Session not persisting**: Check localStorage for sessionToken, verify server is running.
+
+**Gemini API Issues:**
+- **"API key not configured"**: Edit `config/config.js` and replace `YOUR_API_KEY_HERE` with actual key.
+- **"Failed to communicate with Gemini API"**: Check internet connection and API key validity.
+- **Empty response blocks**: Fixed - response blocks now only created after successful API connection.
+
+**Branching Problems:**
+- **Unexpected branches on first prompt**: Fixed - branching only occurs when editing existing content.
+- **Branches not connected**: Check if nodes have `branchedFrom` field and are siblings (same parentId).
+
+**Workspace Issues:**
+- **Deleted workspaces showing**: Fixed - database query now filters out `_deleted_` prefixed workspaces.
+- **Text not visible**: Fixed - all workspace text now uses dark colors for readability.
+- **Auto-save not working**: Check browser console for authentication errors.
+
+**Performance Issues:**
+- **Slow rendering**: Check browser console for performance warnings (>10ms operations).
+- **Memory leaks**: Ensure proper cleanup of event listeners and editor instances.
+- **Database growing large**: Use `npm run clear-db` to reset completely.
+
+### Debug Information
+
+**Enable Debug Logging:**
+```javascript
+// In browser console
+window.NODE_EDITOR_CONFIG.DEBUG.enabled = true;
+```
+
+**Common Debug Commands:**
+```bash
+# Clear database completely
+npm run clear-db
+
+# Restart with fresh build
+npm run server
+
+# Check database size
+ls -la data/noded.db
+
+# View recent logs
+tail -f server.log  # if logging to file
+```
+
+**Browser Developer Tools:**
+- Console: Shows structured JSON logs with correlation IDs
+- Network: Monitor API calls to `/api/auth/` and `/api/workspaces/`
+- Application: Check localStorage for sessionToken
+- Performance: Monitor rendering and API response times
