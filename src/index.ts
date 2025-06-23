@@ -9,20 +9,48 @@ import { GraphEditor } from './components/graph-editor.js';
 import { ChatInterface } from './components/chat-interface.js';
 import { Logger } from './utils/logger.js';
 import { ErrorFactory } from './types/errors.js';
+import { LoginComponent } from './components/login-component.js';
+import { SessionManager } from './services/session-manager.js';
+import { WorkspaceSidebar } from './components/workspace-sidebar.js';
+import type { UserSession } from './types/auth.types.js';
 import './utils/debug-helper.js'; // Initializes window.debug
 
+
 /**
- * Initialize the graph editor application
+ * Initialize authentication and then the graph editor
  * 
  * @throws {DOMError} When required DOM elements are not found
  * @throws {NodeEditorError} When initialization fails
  */
-function initializeEditor(): void {
+function initializeApp(): void {
+  const logger = new Logger('Application');
+  logger.logFunctionEntry('initializeApp');
+  
+  const loginComponent = LoginComponent.getInstance();
+  
+  // Initialize login component with success callback
+  loginComponent.initialize(async (session: UserSession) => {
+    logger.info('Authentication successful', { userId: session.userId });
+    await initializeEditor(session);
+  });
+  
+  logger.logFunctionExit('initializeApp');
+}
+
+/**
+ * Initialize the graph editor application after authentication
+ * 
+ * @param session - The authenticated user session
+ * @throws {DOMError} When required DOM elements are not found
+ * @throws {NodeEditorError} When initialization fails
+ */
+async function initializeEditor(session: UserSession): Promise<void> {
   const startTime = performance.now();
   const logger = new Logger('Application');
   const errorFactory = new ErrorFactory('app-init');
+  const sessionManager = SessionManager.getInstance();
   
-  logger.logFunctionEntry('initializeEditor');
+  logger.logFunctionEntry('initializeEditor', { userId: session.userId });
 
   try {
     const canvas = document.getElementById('canvas') as HTMLElement;
@@ -58,6 +86,45 @@ function initializeEditor(): void {
     const editor = new GraphEditor(canvas, canvasContent, connections, false);
     logger.logInfo('GraphEditor instance created successfully', 'initializeEditor');
     
+    // Initialize workspace sidebar
+    const workspaceSidebar = WorkspaceSidebar.getInstance();
+    let currentWorkspaceId: string | null = null;
+    
+    // Function to load a workspace
+    const loadWorkspace = async (workspaceId: string) => {
+      try {
+        const response = await sessionManager.makeAuthenticatedRequest(`/api/workspaces/${workspaceId}`);
+        if (response.ok) {
+          const workspace = await response.json();
+          await editor.importUserData(workspace.graphData || [], workspace.canvasState);
+          currentWorkspaceId = workspaceId;
+          logger.info('Workspace loaded successfully', { workspaceId, nodeCount: workspace.graphData?.length || 0 });
+        }
+      } catch (error) {
+        logger.logError(error as Error, 'loadWorkspace');
+      }
+    };
+    
+    // Initialize sidebar with workspace change handler
+    workspaceSidebar.initialize(document.body, editor, loadWorkspace);
+    
+    // Load default workspace
+    try {
+      const response = await sessionManager.makeAuthenticatedRequest('/api/workspaces/default/get-or-create');
+      if (response.ok) {
+        const workspace = await response.json();
+        currentWorkspaceId = workspace.id;
+        workspaceSidebar.setCurrentWorkspace(workspace.id);
+        if (workspace.graphData && workspace.graphData.length > 0) {
+          await editor.importUserData(workspace.graphData, workspace.canvasState);
+          logger.info('Default workspace loaded successfully', { nodeCount: workspace.graphData.length });
+        }
+      }
+    } catch (error) {
+      logger.logError(error as Error, 'loadDefaultWorkspace');
+      // Continue with empty editor
+    }
+    
     // Create and initialize ChatInterface
     const editorContainer = document.querySelector('.editor-container') as HTMLElement;
     if (!editorContainer) {
@@ -72,6 +139,31 @@ function initializeEditor(): void {
     const chatInterface = new ChatInterface(editorContainer, editor);
     editor.setChatInterface(chatInterface);
     logger.logInfo('ChatInterface instance created and connected', 'initializeEditor');
+    
+    // Enable auto-save
+    sessionManager.enableAutoSave(async () => {
+      try {
+        if (!currentWorkspaceId) {
+          logger.warn('No workspace selected for auto-save');
+          return;
+        }
+        
+        const graphData = editor.exportUserData();
+        const canvasState = editor.getCanvasState();
+        
+        await sessionManager.makeAuthenticatedRequest(`/api/workspaces/${currentWorkspaceId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            graphData,
+            canvasState
+          })
+        });
+        
+        logger.debug('Auto-save completed for workspace', { workspaceId: currentWorkspaceId });
+      } catch (error) {
+        logger.logError(error as Error, 'autoSave');
+      }
+    });
     
     // Set up global button handlers with comprehensive error handling
     setupGlobalEventHandlers(editor, logger, errorFactory);
@@ -435,12 +527,12 @@ if (typeof window !== 'undefined') {
   
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      logger.logInfo('DOM content loaded, initializing editor', 'bootstrap');
-      initializeEditor();
+      logger.logInfo('DOM content loaded, initializing app', 'bootstrap');
+      initializeApp();
     });
   } else {
-    logger.logInfo('DOM already loaded, initializing editor immediately', 'bootstrap');
-    initializeEditor();
+    logger.logInfo('DOM already loaded, initializing app immediately', 'bootstrap');
+    initializeApp();
   }
 }
 

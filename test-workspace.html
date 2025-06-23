@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workspace Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #output {
+            white-space: pre-wrap;
+            background: #fff;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            min-height: 100px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Workspace API Test</h1>
+    
+    <div class="section">
+        <h2>Authentication</h2>
+        <button onclick="login()">Login (test/test123)</button>
+        <button onclick="checkSession()">Check Session</button>
+    </div>
+    
+    <div class="section">
+        <h2>Workspace Operations</h2>
+        <button onclick="listWorkspaces()">List Workspaces</button>
+        <button onclick="createWorkspace()">Create New Workspace</button>
+        <button onclick="getDefaultWorkspace()">Get Default Workspace</button>
+    </div>
+    
+    <div class="section">
+        <h2>Output</h2>
+        <div id="output"></div>
+    </div>
+    
+    <script>
+        let sessionToken = localStorage.getItem('sessionToken') || '';
+        
+        function log(message) {
+            const output = document.getElementById('output');
+            output.textContent = JSON.stringify(message, null, 2);
+        }
+        
+        async function makeRequest(url, options = {}) {
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': sessionToken ? `Bearer ${sessionToken}` : ''
+                }
+            };
+            
+            const response = await fetch(url, { ...defaultOptions, ...options });
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Request failed');
+            }
+            
+            return data;
+        }
+        
+        async function login() {
+            try {
+                const data = await makeRequest('/api/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        username: 'test',
+                        password: 'test123'
+                    })
+                });
+                
+                sessionToken = data.session.sessionToken;
+                localStorage.setItem('sessionToken', sessionToken);
+                log({ success: true, message: 'Logged in successfully', session: data.session });
+            } catch (error) {
+                log({ success: false, error: error.message });
+            }
+        }
+        
+        async function checkSession() {
+            try {
+                const data = await makeRequest('/api/auth/session');
+                log({ success: true, session: data.session });
+            } catch (error) {
+                log({ success: false, error: error.message });
+            }
+        }
+        
+        async function listWorkspaces() {
+            try {
+                const data = await makeRequest('/api/workspaces');
+                log({ success: true, workspaces: data });
+            } catch (error) {
+                log({ success: false, error: error.message });
+            }
+        }
+        
+        async function createWorkspace() {
+            const name = prompt('Enter workspace name:');
+            if (!name) return;
+            
+            try {
+                const data = await makeRequest('/api/workspaces', {
+                    method: 'POST',
+                    body: JSON.stringify({ name })
+                });
+                log({ success: true, workspace: data });
+            } catch (error) {
+                log({ success: false, error: error.message });
+            }
+        }
+        
+        async function getDefaultWorkspace() {
+            try {
+                const data = await makeRequest('/api/workspaces/default/get-or-create');
+                log({ success: true, workspace: data });
+            } catch (error) {
+                log({ success: false, error: error.message });
+            }
+        }
+    </script>
+</body>
+</html>

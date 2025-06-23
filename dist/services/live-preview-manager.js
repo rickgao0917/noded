@@ -4,15 +4,6 @@
  * Handles preview modes, content synchronization, and efficient
  * rendering with debouncing and queue management.
  */
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 import { Logger } from '../utils/logger.js';
 import { MarkdownRenderer } from './markdown-renderer.js';
 /**
@@ -117,49 +108,47 @@ export class LivePreviewManager {
     /**
      * Updates preview content with debouncing
      */
-    updatePreview(blockId, content, correlationId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('updatePreview', {
+    async updatePreview(blockId, content, correlationId) {
+        this.logger.logFunctionEntry('updatePreview', {
+            blockId,
+            contentLength: content.length,
+            correlationId
+        });
+        try {
+            // Clear existing debounce timer
+            const existingTimer = this.debounceTimers.get(blockId);
+            if (existingTimer) {
+                window.clearTimeout(existingTimer);
+            }
+            // Set new debounce timer
+            const timer = window.setTimeout(() => {
+                this.debounceTimers.delete(blockId);
+                this.queueRender({
+                    blockId,
+                    content,
+                    options: {
+                        enableSyntaxHighlighting: true,
+                        enableMath: true,
+                        enableDiagrams: true,
+                        enableEmoji: true,
+                        sanitize: true,
+                        theme: 'dark'
+                    },
+                    priority: 1,
+                    timestamp: new Date()
+                });
+            }, this.debounceDelay);
+            this.debounceTimers.set(blockId, timer);
+            this.logger.logFunctionExit('updatePreview');
+        }
+        catch (error) {
+            this.logger.logError(error, 'updatePreview', {
                 blockId,
                 contentLength: content.length,
                 correlationId
             });
-            try {
-                // Clear existing debounce timer
-                const existingTimer = this.debounceTimers.get(blockId);
-                if (existingTimer) {
-                    window.clearTimeout(existingTimer);
-                }
-                // Set new debounce timer
-                const timer = window.setTimeout(() => {
-                    this.debounceTimers.delete(blockId);
-                    this.queueRender({
-                        blockId,
-                        content,
-                        options: {
-                            enableSyntaxHighlighting: true,
-                            enableMath: true,
-                            enableDiagrams: true,
-                            enableEmoji: true,
-                            sanitize: true,
-                            theme: 'dark'
-                        },
-                        priority: 1,
-                        timestamp: new Date()
-                    });
-                }, this.debounceDelay);
-                this.debounceTimers.set(blockId, timer);
-                this.logger.logFunctionExit('updatePreview');
-            }
-            catch (error) {
-                this.logger.logError(error, 'updatePreview', {
-                    blockId,
-                    contentLength: content.length,
-                    correlationId
-                });
-                throw error;
-            }
-        });
+            throw error;
+        }
     }
     /**
      * Disables preview for a block
@@ -314,74 +303,72 @@ export class LivePreviewManager {
     /**
      * Processes the render queue
      */
-    processRenderQueue() {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (this.isProcessingQueue || this.renderQueue.length === 0) {
-                return;
-            }
-            this.isProcessingQueue = true;
-            this.logger.logFunctionEntry('processRenderQueue', {
-                queueLength: this.renderQueue.length
-            });
-            try {
-                while (this.renderQueue.length > 0) {
-                    const task = this.renderQueue.dequeue();
-                    if (!task)
-                        continue;
-                    // Check if block is still active
-                    const state = this.activeBlocks.get(task.blockId);
-                    if (!state || state.mode === 'edit_only') {
-                        continue;
-                    }
-                    // Render content
-                    const startTime = performance.now();
-                    try {
-                        const result = yield this.markdownRenderer.renderMarkdown(task.content, task.options);
-                        // Update preview container
-                        const blockElement = document.querySelector(`[data-block-id="${task.blockId}"]`);
-                        const previewContainer = blockElement === null || blockElement === void 0 ? void 0 : blockElement.querySelector('.markdown-preview');
-                        if (previewContainer) {
-                            // Store scroll position
-                            const scrollTop = previewContainer.scrollTop;
-                            // Update content
-                            previewContainer.innerHTML = result.html;
-                            // Restore scroll position
-                            previewContainer.scrollTop = scrollTop;
-                            // Highlight changes if enabled
-                            if (this.syncOptions.highlightChanges) {
-                                this.highlightChanges(previewContainer);
-                            }
+    async processRenderQueue() {
+        if (this.isProcessingQueue || this.renderQueue.length === 0) {
+            return;
+        }
+        this.isProcessingQueue = true;
+        this.logger.logFunctionEntry('processRenderQueue', {
+            queueLength: this.renderQueue.length
+        });
+        try {
+            while (this.renderQueue.length > 0) {
+                const task = this.renderQueue.dequeue();
+                if (!task)
+                    continue;
+                // Check if block is still active
+                const state = this.activeBlocks.get(task.blockId);
+                if (!state || state.mode === 'edit_only') {
+                    continue;
+                }
+                // Render content
+                const startTime = performance.now();
+                try {
+                    const result = await this.markdownRenderer.renderMarkdown(task.content, task.options);
+                    // Update preview container
+                    const blockElement = document.querySelector(`[data-block-id="${task.blockId}"]`);
+                    const previewContainer = blockElement === null || blockElement === void 0 ? void 0 : blockElement.querySelector('.markdown-preview');
+                    if (previewContainer) {
+                        // Store scroll position
+                        const scrollTop = previewContainer.scrollTop;
+                        // Update content
+                        previewContainer.innerHTML = result.html;
+                        // Restore scroll position
+                        previewContainer.scrollTop = scrollTop;
+                        // Highlight changes if enabled
+                        if (this.syncOptions.highlightChanges) {
+                            this.highlightChanges(previewContainer);
                         }
-                        const renderTime = performance.now() - startTime;
-                        this.logger.logDebug('Rendered markdown content', 'processRenderQueue', {
-                            blockId: task.blockId,
-                            renderTime,
-                            htmlLength: result.html.length
-                        });
                     }
-                    catch (error) {
-                        this.logger.logError(error, 'processRenderQueue', {
-                            blockId: task.blockId
-                        });
-                        // Show error in preview
-                        const blockElement = document.querySelector(`[data-block-id="${task.blockId}"]`);
-                        const previewContainer = blockElement === null || blockElement === void 0 ? void 0 : blockElement.querySelector('.markdown-preview');
-                        if (previewContainer) {
-                            previewContainer.innerHTML = `
+                    const renderTime = performance.now() - startTime;
+                    this.logger.logDebug('Rendered markdown content', 'processRenderQueue', {
+                        blockId: task.blockId,
+                        renderTime,
+                        htmlLength: result.html.length
+                    });
+                }
+                catch (error) {
+                    this.logger.logError(error, 'processRenderQueue', {
+                        blockId: task.blockId
+                    });
+                    // Show error in preview
+                    const blockElement = document.querySelector(`[data-block-id="${task.blockId}"]`);
+                    const previewContainer = blockElement === null || blockElement === void 0 ? void 0 : blockElement.querySelector('.markdown-preview');
+                    if (previewContainer) {
+                        previewContainer.innerHTML = `
               <div class="markdown-error">
                 <p>Error rendering markdown:</p>
                 <pre>${this.escapeHtml(error.message)}</pre>
               </div>
             `;
-                        }
                     }
                 }
             }
-            finally {
-                this.isProcessingQueue = false;
-                this.logger.logFunctionExit('processRenderQueue');
-            }
-        });
+        }
+        finally {
+            this.isProcessingQueue = false;
+            this.logger.logFunctionExit('processRenderQueue');
+        }
     }
     /**
      * Highlights recently changed content

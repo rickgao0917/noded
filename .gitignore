@@ -22,3 +22,7 @@ API_SETUP.md
 
 # Configuration files with API keys
 config/config.js
+
+# Database files
+data/
+*.db

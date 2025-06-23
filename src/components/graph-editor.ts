@@ -1511,6 +1511,8 @@ export class GraphEditor {
       this.logger.logPerformance('addChild', 'child_creation', executionTime);
       this.logger.logFunctionExit('addChild', { parentId, childId }, executionTime);
       
+      this.emitGraphChanged();
+      
       return childId;
       
     } catch (error) {
@@ -1575,6 +1577,8 @@ export class GraphEditor {
         const executionTime = performance.now() - startTime;
         this.logger.logPerformance('addMarkdownBlock', 'block_addition', executionTime);
         this.logger.logFunctionExit('addMarkdownBlock', { nodeId, blockId: newBlock.id }, executionTime);
+        
+        this.emitGraphChanged();
         
       } else {
         throw this.errorFactory.createNodeEditorError(
@@ -2253,6 +2257,8 @@ export class GraphEditor {
       this.logger.logPerformance('deleteNode', 'node_deletion', executionTime);
       this.logger.logFunctionExit('deleteNode', { nodeId, remainingNodes: this.nodes.size }, executionTime);
       
+      this.emitGraphChanged();
+      
     } catch (error) {
       this.logger.logError(error as Error, 'deleteNode', { nodeId });
       
@@ -2799,6 +2805,8 @@ export class GraphEditor {
       const executionTime = performance.now() - startTime;
       this.logger.logPerformance('addRootNode', 'root_creation', executionTime);
       this.logger.logFunctionExit('addRootNode', { rootId }, executionTime);
+      
+      this.emitGraphChanged();
       
     } catch (error) {
       this.logger.logError(error as Error, 'addRootNode');
@@ -4154,8 +4162,7 @@ export class GraphEditor {
    */
   public getCanvasState() {
     return {
-      selectedNodeId: this.selectedNode ? this.selectedNode.id : null,
-      canvasOffset: { x: this.panX, y: this.panY },
+      pan: { x: this.panX, y: this.panY },
       zoom: this.scale
     };
   }
@@ -4250,6 +4257,8 @@ export class GraphEditor {
       blockId, 
       remainingBlocks: node.blocks.length 
     });
+    
+    this.emitGraphChanged();
   }
 
   /**
@@ -4334,6 +4343,93 @@ export class GraphEditor {
    */
   public getVersionHistoryManager(): VersionHistoryManager {
     return this.versionHistoryManager;
+  }
+
+  /**
+   * Export user data for persistence
+   * @returns Array of GraphNode objects
+   */
+  public exportUserData(): GraphNode[] {
+    this.logger.logFunctionEntry('exportUserData');
+    
+    try {
+      const nodes = Array.from(this.nodes.values());
+      this.logger.logInfo('User data exported', 'exportUserData', { nodeCount: nodes.length });
+      return nodes;
+    } catch (error) {
+      this.logger.logError(error as Error, 'exportUserData');
+      return [];
+    } finally {
+      this.logger.logFunctionExit('exportUserData');
+    }
+  }
+
+  /**
+   * Import user data from persistence
+   * @param nodes - Array of GraphNode objects
+   * @param canvasState - Optional canvas state to restore
+   */
+  public async importUserData(nodes: GraphNode[], canvasState?: any): Promise<void> {
+    this.logger.logFunctionEntry('importUserData', { nodeCount: nodes.length });
+    
+    try {
+      // Clear existing nodes
+      this.nodes.clear();
+      this.canvasContent.innerHTML = '';
+      
+      // Import nodes
+      for (const nodeData of nodes) {
+        const node: GraphNode = {
+          ...nodeData
+        };
+        
+        this.nodes.set(node.id, node);
+        this.renderNode(node);
+      }
+      
+      // Restore canvas state if provided
+      if (canvasState) {
+        if (canvasState.pan) {
+          this.panX = canvasState.pan.x;
+          this.panY = canvasState.pan.y;
+        }
+        if (canvasState.zoom) {
+          this.scale = canvasState.zoom;
+        }
+        this.updateCanvasTransform();
+      }
+      
+      // Update connections
+      this.updateConnections();
+      
+      this.logger.logInfo('User data imported successfully', 'importUserData', { 
+        nodeCount: nodes.length,
+        hasCanvasState: !!canvasState 
+      });
+    } catch (error) {
+      this.logger.logError(error as Error, 'importUserData');
+      throw error;
+    } finally {
+      this.logger.logFunctionExit('importUserData');
+    }
+  }
+
+
+  /**
+   * Subscribe to graph changes for auto-save
+   * @param callback - Callback to call when graph changes
+   */
+  public onGraphChange(callback: () => void): void {
+    // Add listener for all graph modifications
+    this.canvas.addEventListener('graphChanged', callback);
+  }
+
+  /**
+   * Emit graph changed event
+   * @private
+   */
+  private emitGraphChanged(): void {
+    this.canvas.dispatchEvent(new CustomEvent('graphChanged'));
   }
 
 

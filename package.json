@@ -5,10 +5,12 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc && node scripts/fix-imports.js",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:all": "npm run build && npm run build:server",
     "build:strict": "tsc --strict --noEmit && eslint . && npm run build",
     "dev": "tsc --watch",
     "serve": "python3 -m http.server 8000",
-    "server": "npm run build && node server.js",
+    "server": "npm run build:all && node server.js",
     "start": "npm run build && npm run serve",
     "typecheck": "tsc --noEmit --strict",
     "lint": "eslint . --max-warnings 0",
@@ -39,6 +41,13 @@
   "private": true,
   "dependencies": {
     "@types/dompurify": "^3.0.5",
-    "isomorphic-dompurify": "^2.25.0"
+    "isomorphic-dompurify": "^2.25.0",
+    "sqlite3": "^5.1.7",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.3",
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^22.15.6"
   }
 }

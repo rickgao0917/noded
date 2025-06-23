@@ -2,15 +2,6 @@
  * ChatInterface component that manages the chat panel UI.
  * Handles user interactions, message display, and coordination with the graph editor.
  */
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 import { Logger } from '../utils/logger.js';
 import { ChatInputHandler } from '../services/chat-input-handler.js';
 import { ConversationManager } from '../services/conversation-manager.js';
@@ -71,44 +62,42 @@ export class ChatInterface {
      *
      * @param nodeId - The ID of the node to open chat for
      */
-    openChatForNode(nodeId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('openChatForNode', { nodeId });
-            this.logger.logUserInteraction('chat_opened', undefined, { nodeId });
-            try {
-                // Validate node exists
-                const node = this.graphEditor.getNode(nodeId);
-                if (!node) {
-                    throw new Error(`Node with ID ${nodeId} not found`);
-                }
-                // Set loading state
-                this.updateLoadingState('buildingThread', true);
-                // Build conversation thread using ConversationManager
-                const thread = this.conversationManager.buildThreadFromNodeToRoot(nodeId);
-                // Update state
-                this.state.activeThread = thread;
-                this.state.isVisible = true;
-                // Show panel and adjust layout
-                this.showPanel();
-                this.adjustCanvasLayout(true);
-                // Render thread
-                this.renderThread(thread);
-                // Focus input if configured
-                if (this.config.autoFocusInput && this.inputElement) {
-                    this.inputElement.focus();
-                }
-                this.updateLoadingState('buildingThread', false);
+    async openChatForNode(nodeId) {
+        this.logger.logFunctionEntry('openChatForNode', { nodeId });
+        this.logger.logUserInteraction('chat_opened', undefined, { nodeId });
+        try {
+            // Validate node exists
+            const node = this.graphEditor.getNode(nodeId);
+            if (!node) {
+                throw new Error(`Node with ID ${nodeId} not found`);
             }
-            catch (error) {
-                this.logger.logError(error, 'openChatForNode', { nodeId });
-                this.updateLoadingState('buildingThread', false);
-                // TODO: Show error message to user
-                throw error;
+            // Set loading state
+            this.updateLoadingState('buildingThread', true);
+            // Build conversation thread using ConversationManager
+            const thread = this.conversationManager.buildThreadFromNodeToRoot(nodeId);
+            // Update state
+            this.state.activeThread = thread;
+            this.state.isVisible = true;
+            // Show panel and adjust layout
+            this.showPanel();
+            this.adjustCanvasLayout(true);
+            // Render thread
+            this.renderThread(thread);
+            // Focus input if configured
+            if (this.config.autoFocusInput && this.inputElement) {
+                this.inputElement.focus();
             }
-            finally {
-                this.logger.logFunctionExit('openChatForNode');
-            }
-        });
+            this.updateLoadingState('buildingThread', false);
+        }
+        catch (error) {
+            this.logger.logError(error, 'openChatForNode', { nodeId });
+            this.updateLoadingState('buildingThread', false);
+            // TODO: Show error message to user
+            throw error;
+        }
+        finally {
+            this.logger.logFunctionExit('openChatForNode');
+        }
     }
     /**
      * Closes the chat panel and resets the canvas layout.
@@ -519,169 +508,163 @@ export class ChatInterface {
     /**
      * Handles sending a message.
      */
-    handleSendMessage() {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('handleSendMessage');
-            try {
-                if (!this.inputElement || this.isAnyLoading())
-                    return;
-                const input = this.inputElement.value; // Don't trim here, let parseCommand handle it
-                if (!input.trim())
-                    return; // Check if empty after trimming
-                // Parse command
-                const commandResult = this.inputHandler.parseCommand(input);
-                if (!commandResult.isValid) {
-                    // TODO: Show error message to user
-                    this.logger.logInfo('invalid_command', 'handleSendMessage', {
-                        error: commandResult.error
-                    });
-                    return;
-                }
-                this.logger.logUserInteraction('message_sent', undefined, {
-                    command: commandResult.command,
+    async handleSendMessage() {
+        this.logger.logFunctionEntry('handleSendMessage');
+        try {
+            if (!this.inputElement || this.isAnyLoading())
+                return;
+            const input = this.inputElement.value; // Don't trim here, let parseCommand handle it
+            if (!input.trim())
+                return; // Check if empty after trimming
+            // Parse command
+            const commandResult = this.inputHandler.parseCommand(input);
+            if (!commandResult.isValid) {
+                // TODO: Show error message to user
+                this.logger.logInfo('invalid_command', 'handleSendMessage', {
+                    error: commandResult.error
+                });
+                return;
+            }
+            this.logger.logUserInteraction('message_sent', undefined, {
+                command: commandResult.command,
+                contentLength: commandResult.content.length
+            });
+            // Clear input
+            this.inputElement.value = '';
+            this.state.inputContent = '';
+            // Process the command
+            if (commandResult.command === '/prompt') {
+                await this.handlePromptCommand(commandResult.content);
+            }
+            else if (commandResult.command === '/md') {
+                this.logger.logInfo('Processing /md command', 'handleSendMessage', {
+                    originalInput: input,
+                    parsedContent: commandResult.content,
                     contentLength: commandResult.content.length
                 });
-                // Clear input
-                this.inputElement.value = '';
-                this.state.inputContent = '';
-                // Process the command
-                if (commandResult.command === '/prompt') {
-                    yield this.handlePromptCommand(commandResult.content);
-                }
-                else if (commandResult.command === '/md') {
-                    this.logger.logInfo('Processing /md command', 'handleSendMessage', {
-                        originalInput: input,
-                        parsedContent: commandResult.content,
-                        contentLength: commandResult.content.length
-                    });
-                    yield this.handleMarkdownCommand(commandResult.content);
-                }
+                await this.handleMarkdownCommand(commandResult.content);
             }
-            finally {
-                this.logger.logFunctionExit('handleSendMessage');
-            }
-        });
+        }
+        finally {
+            this.logger.logFunctionExit('handleSendMessage');
+        }
     }
     /**
      * Handles the /prompt command by creating a new child node.
      */
-    handlePromptCommand(content) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('handlePromptCommand', { contentLength: content.length });
+    async handlePromptCommand(content) {
+        this.logger.logFunctionEntry('handlePromptCommand', { contentLength: content.length });
+        try {
+            if (!this.state.activeThread) {
+                this.logger.logWarn('No active thread for prompt command', 'handlePromptCommand');
+                return;
+            }
+            // Set loading states
+            this.updateLoadingState('sendingMessage', true);
+            this.updateLoadingState('generatingResponse', true);
             try {
-                if (!this.state.activeThread) {
-                    this.logger.logWarn('No active thread for prompt command', 'handlePromptCommand');
-                    return;
+                // First, add the prompt message to the chat immediately
+                const promptMessage = {
+                    id: `msg-${Date.now()}-prompt`,
+                    type: ChatMessageType.USER_PROMPT,
+                    content: content,
+                    timestamp: new Date(),
+                    nodeId: this.state.activeThread.targetNodeId,
+                    blockId: 'pending'
+                };
+                // Add the message to the current thread temporarily
+                if (this.state.activeThread) {
+                    this.state.activeThread.messages.push(promptMessage);
+                    // Re-render the thread to show the new prompt immediately
+                    this.renderThread(this.state.activeThread);
                 }
-                // Set loading states
-                this.updateLoadingState('sendingMessage', true);
-                this.updateLoadingState('generatingResponse', true);
-                try {
-                    // First, add the prompt message to the chat immediately
-                    const promptMessage = {
-                        id: `msg-${Date.now()}-prompt`,
-                        type: ChatMessageType.USER_PROMPT,
-                        content: content,
-                        timestamp: new Date(),
-                        nodeId: this.state.activeThread.targetNodeId,
-                        blockId: 'pending'
-                    };
-                    // Add the message to the current thread temporarily
-                    if (this.state.activeThread) {
-                        this.state.activeThread.messages.push(promptMessage);
-                        // Re-render the thread to show the new prompt immediately
-                        this.renderThread(this.state.activeThread);
-                    }
-                    // Prepare to track streaming response
-                    let responseMessageId = null;
-                    let targetNodeId = this.state.activeThread.targetNodeId;
-                    // Submit prompt with streaming callback
-                    const resultNodeId = yield this.conversationManager.submitPromptForNode(targetNodeId, content, (streamingContent) => {
-                        // Handle streaming updates
-                        if (!responseMessageId) {
-                            // Create response message on first chunk
-                            responseMessageId = `msg-${Date.now()}-response`;
-                            const responseMessage = {
-                                id: responseMessageId,
-                                type: ChatMessageType.ASSISTANT_RESPONSE,
-                                content: streamingContent,
-                                timestamp: new Date(),
-                                nodeId: targetNodeId, // Use the target node ID for now
-                                blockId: 'streaming'
-                            };
-                            if (this.state.activeThread) {
-                                this.state.activeThread.messages.push(responseMessage);
-                                this.renderThread(this.state.activeThread);
-                            }
+                // Prepare to track streaming response
+                let responseMessageId = null;
+                let targetNodeId = this.state.activeThread.targetNodeId;
+                // Submit prompt with streaming callback
+                const resultNodeId = await this.conversationManager.submitPromptForNode(targetNodeId, content, (streamingContent) => {
+                    // Handle streaming updates
+                    if (!responseMessageId) {
+                        // Create response message on first chunk
+                        responseMessageId = `msg-${Date.now()}-response`;
+                        const responseMessage = {
+                            id: responseMessageId,
+                            type: ChatMessageType.ASSISTANT_RESPONSE,
+                            content: streamingContent,
+                            timestamp: new Date(),
+                            nodeId: targetNodeId, // Use the target node ID for now
+                            blockId: 'streaming'
+                        };
+                        if (this.state.activeThread) {
+                            this.state.activeThread.messages.push(responseMessage);
+                            this.renderThread(this.state.activeThread);
                         }
-                        else {
-                            // Update existing response message
-                            this.updateStreamingMessage(responseMessageId, streamingContent);
-                        }
-                    });
-                    // Only sync if a new node was created
-                    if (resultNodeId !== this.state.activeThread.targetNodeId) {
-                        // Sync with graph display
-                        yield this.graphSynchronizer.syncNewChildNode(this.state.activeThread.targetNodeId, resultNodeId);
                     }
-                    // Refresh the chat view to show the complete updated conversation
-                    yield this.openChatForNode(resultNodeId);
-                    this.logger.logInfo('Prompt command processed successfully', 'handlePromptCommand', {
-                        resultNodeId
-                    });
+                    else {
+                        // Update existing response message
+                        this.updateStreamingMessage(responseMessageId, streamingContent);
+                    }
+                });
+                // Only sync if a new node was created
+                if (resultNodeId !== this.state.activeThread.targetNodeId) {
+                    // Sync with graph display
+                    await this.graphSynchronizer.syncNewChildNode(this.state.activeThread.targetNodeId, resultNodeId);
                 }
-                catch (error) {
-                    this.logger.logError(error, 'handlePromptCommand');
-                    // TODO: Show error to user
-                    this.showError('Failed to process prompt: ' + error.message);
-                }
-                finally {
-                    this.updateLoadingState('sendingMessage', false);
-                    this.updateLoadingState('generatingResponse', false);
-                }
+                // Refresh the chat view to show the complete updated conversation
+                await this.openChatForNode(resultNodeId);
+                this.logger.logInfo('Prompt command processed successfully', 'handlePromptCommand', {
+                    resultNodeId
+                });
+            }
+            catch (error) {
+                this.logger.logError(error, 'handlePromptCommand');
+                // TODO: Show error to user
+                this.showError('Failed to process prompt: ' + error.message);
             }
             finally {
-                this.logger.logFunctionExit('handlePromptCommand');
+                this.updateLoadingState('sendingMessage', false);
+                this.updateLoadingState('generatingResponse', false);
             }
-        });
+        }
+        finally {
+            this.logger.logFunctionExit('handlePromptCommand');
+        }
     }
     /**
      * Handles the /md command by adding markdown to the previous prompt node.
      */
-    handleMarkdownCommand(content) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('handleMarkdownCommand', {
-                contentLength: content.length,
-                contentPreview: content.substring(0, 100),
-                content: content // Log full content for debugging
-            });
+    async handleMarkdownCommand(content) {
+        this.logger.logFunctionEntry('handleMarkdownCommand', {
+            contentLength: content.length,
+            contentPreview: content.substring(0, 100),
+            content: content // Log full content for debugging
+        });
+        try {
+            if (!this.state.activeThread) {
+                this.logger.logWarn('No active thread for markdown command', 'handleMarkdownCommand');
+                return;
+            }
+            // Set loading state
+            this.updateLoadingState('sendingMessage', true);
             try {
-                if (!this.state.activeThread) {
-                    this.logger.logWarn('No active thread for markdown command', 'handleMarkdownCommand');
-                    return;
-                }
-                // Set loading state
-                this.updateLoadingState('sendingMessage', true);
-                try {
-                    // Add markdown to previous prompt node
-                    yield this.conversationManager.associateMarkdownWithPreviousPrompt(content, this.state.activeThread);
-                    // Refresh the thread display
-                    yield this.openChatForNode(this.state.activeThread.targetNodeId);
-                    this.logger.logInfo('Markdown command processed successfully', 'handleMarkdownCommand');
-                }
-                catch (error) {
-                    this.logger.logError(error, 'handleMarkdownCommand');
-                    // TODO: Show error to user
-                    this.showError('Failed to add markdown: ' + error.message);
-                }
-                finally {
-                    this.updateLoadingState('sendingMessage', false);
-                }
+                // Add markdown to previous prompt node
+                await this.conversationManager.associateMarkdownWithPreviousPrompt(content, this.state.activeThread);
+                // Refresh the thread display
+                await this.openChatForNode(this.state.activeThread.targetNodeId);
+                this.logger.logInfo('Markdown command processed successfully', 'handleMarkdownCommand');
+            }
+            catch (error) {
+                this.logger.logError(error, 'handleMarkdownCommand');
+                // TODO: Show error to user
+                this.showError('Failed to add markdown: ' + error.message);
             }
             finally {
-                this.logger.logFunctionExit('handleMarkdownCommand');
+                this.updateLoadingState('sendingMessage', false);
             }
-        });
+        }
+        finally {
+            this.logger.logFunctionExit('handleMarkdownCommand');
+        }
     }
     /**
      * Updates a streaming message in the chat display
@@ -823,15 +806,15 @@ export class ChatInterface {
                 textarea.focus();
                 textarea.select();
                 // Handle save
-                saveBtn.addEventListener('click', () => __awaiter(this, void 0, void 0, function* () {
+                saveBtn.addEventListener('click', async () => {
                     const newContent = textarea.value.trim();
                     if (newContent && newContent !== message.content) {
                         // Create a new branch with edited content
-                        yield this.createBranchFromEdit(message.nodeId, message.type, newContent);
+                        await this.createBranchFromEdit(message.nodeId, message.type, newContent);
                     }
                     // Revert to preview mode
                     this.toggleMessagePreviewMode(messageEl, Object.assign(Object.assign({}, message), { content: newContent }));
-                }));
+                });
                 // Handle cancel
                 cancelBtn.addEventListener('click', () => {
                     // Revert to preview mode without saving
@@ -872,107 +855,105 @@ export class ChatInterface {
     /**
      * Creates a new branch from an edited message
      */
-    createBranchFromEdit(nodeId, messageType, newContent) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('createBranchFromEdit', { nodeId, messageType, contentLength: newContent.length });
-            try {
-                const branchingService = this.graphEditor.getBranchingService();
-                const versionHistoryManager = this.graphEditor.getVersionHistoryManager();
-                // Handle different message types
-                if (messageType === ChatMessageType.USER_PROMPT) {
-                    // For prompts, find the prompt block and create a branch
-                    const node = this.graphEditor.getNode(nodeId);
-                    if (node) {
-                        const promptBlock = node.blocks.find(b => b.type === 'prompt');
-                        if (promptBlock) {
-                            const branchResult = yield branchingService.createBranchFromEdit(nodeId, promptBlock.id, newContent, EditSource.CHAT_INTERFACE);
-                            if (branchResult.success) {
-                                // Get the new node from the branching service
-                                const newNode = branchingService.getNode(branchResult.newNodeId);
-                                if (newNode) {
-                                    // Add the node to the graph editor
-                                    this.graphEditor.addNodeToGraph(newNode);
-                                }
-                                versionHistoryManager.recordBranch(branchResult.branchMetadata);
-                                yield this.openChatForNode(branchResult.newNodeId);
-                                this.logger.logInfo('Prompt branch created', 'createBranchFromEdit', {
-                                    originalNodeId: nodeId,
-                                    newNodeId: branchResult.newNodeId
-                                });
+    async createBranchFromEdit(nodeId, messageType, newContent) {
+        this.logger.logFunctionEntry('createBranchFromEdit', { nodeId, messageType, contentLength: newContent.length });
+        try {
+            const branchingService = this.graphEditor.getBranchingService();
+            const versionHistoryManager = this.graphEditor.getVersionHistoryManager();
+            // Handle different message types
+            if (messageType === ChatMessageType.USER_PROMPT) {
+                // For prompts, find the prompt block and create a branch
+                const node = this.graphEditor.getNode(nodeId);
+                if (node) {
+                    const promptBlock = node.blocks.find(b => b.type === 'prompt');
+                    if (promptBlock) {
+                        const branchResult = await branchingService.createBranchFromEdit(nodeId, promptBlock.id, newContent, EditSource.CHAT_INTERFACE);
+                        if (branchResult.success) {
+                            // Get the new node from the branching service
+                            const newNode = branchingService.getNode(branchResult.newNodeId);
+                            if (newNode) {
+                                // Add the node to the graph editor
+                                this.graphEditor.addNodeToGraph(newNode);
                             }
+                            versionHistoryManager.recordBranch(branchResult.branchMetadata);
+                            await this.openChatForNode(branchResult.newNodeId);
+                            this.logger.logInfo('Prompt branch created', 'createBranchFromEdit', {
+                                originalNodeId: nodeId,
+                                newNodeId: branchResult.newNodeId
+                            });
                         }
                     }
                 }
-                else if (messageType === ChatMessageType.ASSISTANT_RESPONSE) {
-                    // For responses, find the response block and create a branch
-                    this.logger.logInfo('Creating branch for response edit', 'createBranchFromEdit', {
-                        nodeId,
-                        messageType,
-                        contentPreview: newContent.substring(0, 50)
-                    });
-                    const node = this.graphEditor.getNode(nodeId);
-                    if (node) {
-                        const responseBlock = node.blocks.find(b => b.type === 'response');
-                        if (responseBlock) {
-                            this.logger.logInfo('Found response block, creating branch', 'createBranchFromEdit', {
-                                blockId: responseBlock.id,
-                                blockType: responseBlock.type
+            }
+            else if (messageType === ChatMessageType.ASSISTANT_RESPONSE) {
+                // For responses, find the response block and create a branch
+                this.logger.logInfo('Creating branch for response edit', 'createBranchFromEdit', {
+                    nodeId,
+                    messageType,
+                    contentPreview: newContent.substring(0, 50)
+                });
+                const node = this.graphEditor.getNode(nodeId);
+                if (node) {
+                    const responseBlock = node.blocks.find(b => b.type === 'response');
+                    if (responseBlock) {
+                        this.logger.logInfo('Found response block, creating branch', 'createBranchFromEdit', {
+                            blockId: responseBlock.id,
+                            blockType: responseBlock.type
+                        });
+                        const branchResult = await branchingService.createBranchFromEdit(nodeId, responseBlock.id, newContent, EditSource.CHAT_INTERFACE);
+                        if (branchResult.success) {
+                            // Get the new node from the branching service
+                            const newNode = branchingService.getNode(branchResult.newNodeId);
+                            if (newNode) {
+                                // Add the node to the graph editor
+                                this.graphEditor.addNodeToGraph(newNode);
+                            }
+                            versionHistoryManager.recordBranch(branchResult.branchMetadata);
+                            await this.openChatForNode(branchResult.newNodeId);
+                            this.logger.logInfo('Response branch created successfully', 'createBranchFromEdit', {
+                                originalNodeId: nodeId,
+                                newNodeId: branchResult.newNodeId
                             });
-                            const branchResult = yield branchingService.createBranchFromEdit(nodeId, responseBlock.id, newContent, EditSource.CHAT_INTERFACE);
-                            if (branchResult.success) {
-                                // Get the new node from the branching service
-                                const newNode = branchingService.getNode(branchResult.newNodeId);
-                                if (newNode) {
-                                    // Add the node to the graph editor
-                                    this.graphEditor.addNodeToGraph(newNode);
-                                }
-                                versionHistoryManager.recordBranch(branchResult.branchMetadata);
-                                yield this.openChatForNode(branchResult.newNodeId);
-                                this.logger.logInfo('Response branch created successfully', 'createBranchFromEdit', {
-                                    originalNodeId: nodeId,
-                                    newNodeId: branchResult.newNodeId
-                                });
-                            }
-                            else {
-                                this.logger.logWarn('Branch creation failed', 'createBranchFromEdit', {
-                                    nodeId,
-                                    blockId: responseBlock.id
-                                });
-                            }
                         }
                         else {
-                            this.logger.logWarn('No response block found in node', 'createBranchFromEdit', {
+                            this.logger.logWarn('Branch creation failed', 'createBranchFromEdit', {
                                 nodeId,
-                                blockTypes: node.blocks.map(b => b.type)
+                                blockId: responseBlock.id
                             });
                         }
                     }
                     else {
-                        this.logger.logWarn('Node not found for response edit', 'createBranchFromEdit', {
-                            nodeId
+                        this.logger.logWarn('No response block found in node', 'createBranchFromEdit', {
+                            nodeId,
+                            blockTypes: node.blocks.map(b => b.type)
                         });
                     }
                 }
-                else if (messageType === ChatMessageType.USER_MARKDOWN) {
-                    // For markdown, update in place (no branching)
-                    const node = this.graphEditor.getNode(nodeId);
-                    if (node) {
-                        const mdBlock = node.blocks.find(b => b.type === 'markdown');
-                        if (mdBlock) {
-                            yield this.graphEditor.updateBlockContent(nodeId, mdBlock.id, newContent);
-                            this.logger.logInfo('Markdown updated in place', 'createBranchFromEdit', { nodeId });
-                        }
+                else {
+                    this.logger.logWarn('Node not found for response edit', 'createBranchFromEdit', {
+                        nodeId
+                    });
+                }
+            }
+            else if (messageType === ChatMessageType.USER_MARKDOWN) {
+                // For markdown, update in place (no branching)
+                const node = this.graphEditor.getNode(nodeId);
+                if (node) {
+                    const mdBlock = node.blocks.find(b => b.type === 'markdown');
+                    if (mdBlock) {
+                        await this.graphEditor.updateBlockContent(nodeId, mdBlock.id, newContent);
+                        this.logger.logInfo('Markdown updated in place', 'createBranchFromEdit', { nodeId });
                     }
                 }
             }
-            catch (error) {
-                this.logger.logError(error, 'createBranchFromEdit');
-                this.showError('Failed to create branch from edit: ' + error.message);
-            }
-            finally {
-                this.logger.logFunctionExit('createBranchFromEdit');
-            }
-        });
+        }
+        catch (error) {
+            this.logger.logError(error, 'createBranchFromEdit');
+            this.showError('Failed to create branch from edit: ' + error.message);
+        }
+        finally {
+            this.logger.logFunctionExit('createBranchFromEdit');
+        }
     }
     /**
      * Cleans up the component and removes event listeners.

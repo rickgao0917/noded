@@ -1,247 +1,235 @@
-const http = require('http');
-const fs = require('fs');
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
 const path = require('path');
-const url = require('url');
+const { DatabaseService } = require('./dist-server/services/database-service');
+const { AuthenticationService } = require('./dist-server/services/authentication-service');
+const { WorkspaceService } = require('./dist-server/services/workspace-service');
 
-// Simple Gemini API integration
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''; // Set via environment variable
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-
-/**
- * Call Gemini 2.0 Flash API with the provided JSON data
- */
-async function callGeminiAPI(jsonData) {
-  console.log('\n' + '='.repeat(80));
-  console.log('🚀 GEMINI API REQUEST');
-  console.log('='.repeat(80));
-  console.log('Timestamp:', new Date().toISOString());
-  console.log('Input JSON Data:');
-  console.log('-'.repeat(40));
-  console.log(JSON.stringify(jsonData, null, 2));
-  console.log('='.repeat(80));
-
-  // Convert the graph data to a meaningful conversation prompt
-  let prompt = "";
-  
-  if (jsonData.nodes && jsonData.nodes.length > 0) {
-    // Build conversation from the chain of nodes
-    jsonData.nodes.forEach((node, nodeIndex) => {
-      if (node.blocks && node.blocks.length > 0) {
-        node.blocks.forEach((block) => {
-          if (block.type === 'chat') {
-            prompt += `Human: ${block.content}\n\n`;
-          } else if (block.type === 'response') {
-            prompt += `Assistant: ${block.content}\n\n`;
-          }
-          // Skip markdown blocks for conversation flow
-        });
-      }
-    });
-    
-    // If no conversation found, create a simple prompt
-    if (!prompt.trim()) {
-      prompt = "Please provide a helpful response to continue this conversation.";
-    } else {
-      // Add instruction for the next response
-      prompt += "Please continue this conversation with a helpful response:";
-    }
-  } else {
-    prompt = "Hello! How can I help you today?";
-  }
-
-  const requestBody = {
-    contents: [{
-      parts: [{
-        text: prompt
-      }]
-    }],
-    generationConfig: {
-      temperature: 0.7,
-      topK: 1,
-      topP: 1,
-      maxOutputTokens: 2048,
-    }
-  };
-
-  try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-    }
-
-    const responseData = await response.json();
-    
-    console.log('\n' + '='.repeat(80));
-    console.log('✅ GEMINI API RESPONSE');
-    console.log('='.repeat(80));
-    console.log('Timestamp:', new Date().toISOString());
-    console.log('Response JSON:');
-    console.log('-'.repeat(40));
-    console.log(JSON.stringify(responseData, null, 2));
-    console.log('='.repeat(80) + '\n');
-
-    return responseData;
-  } catch (error) {
-    console.error('\n❌ GEMINI API ERROR:');
-    console.error('Timestamp:', new Date().toISOString());
-    console.error('Error:', error.message);
-    console.error('='.repeat(80) + '\n');
-    throw error;
-  }
-}
-
-/**
- * Get content type based on file extension
- */
-function getContentType(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const types = {
-    '.html': 'text/html',
-    '.js': 'application/javascript',
-    '.css': 'text/css',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon'
-  };
-  return types[ext] || 'text/plain';
-}
-
-/**
- * Serve static files
- */
-function serveStaticFile(res, filePath) {
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('File not found');
-      return;
-    }
-    
-    const contentType = getContentType(filePath);
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(data);
-  });
-}
-
-/**
- * Main HTTP server
- */
-const server = http.createServer(async (req, res) => {
-  const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname;
-
-  console.log(`${new Date().toISOString()} - ${req.method} ${pathname}`);
-
-  // Handle API routes
-  if (pathname === '/api/submit' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-    
-    req.on('end', async () => {
-      try {
-        const jsonData = JSON.parse(body);
-        
-        console.log('\n📨 RECEIVED SUBMISSION:');
-        console.log('Timestamp:', new Date().toISOString());
-        console.log('Data size:', JSON.stringify(jsonData).length, 'characters');
-        
-        // Call Gemini API
-        const geminiResponse = await callGeminiAPI(jsonData);
-        
-        // Send response back to client
-        res.writeHead(200, { 
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type'
-        });
-        
-        const responseData = {
-          success: true,
-          submitted: jsonData,
-          geminiResponse: geminiResponse,
-          timestamp: new Date().toISOString()
-        };
-        
-        res.end(JSON.stringify(responseData, null, 2));
-        
-      } catch (error) {
-        console.error('\n❌ SUBMISSION ERROR:');
-        console.error('Timestamp:', new Date().toISOString());
-        console.error('Error:', error.message);
-        
-        res.writeHead(500, { 
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        });
-        res.end(JSON.stringify({ 
-          success: false, 
-          error: error.message,
-          timestamp: new Date().toISOString()
-        }));
-      }
-    });
-    return;
-  }
-  
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    res.writeHead(200, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
-    res.end();
-    return;
-  }
-
-  // Serve static files
-  let filePath;
-  if (pathname === '/' || pathname === '/index.html') {
-    filePath = path.join(__dirname, 'index.html');
-  } else if (pathname === '/standalone.html') {
-    filePath = path.join(__dirname, 'standalone.html');
-  } else if (pathname.startsWith('/dist/')) {
-    filePath = path.join(__dirname, pathname);
-  } else {
-    // Try to serve other static files
-    filePath = path.join(__dirname, pathname);
-  }
-
-  // Check if file exists
-  fs.access(filePath, fs.constants.F_OK, (err) => {
-    if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('File not found');
-    } else {
-      serveStaticFile(res, filePath);
-    }
-  });
-});
-
+const app = express();
 const PORT = process.env.PORT || 8000;
 
-server.listen(PORT, () => {
-  console.log('\n' + '='.repeat(80));
-  console.log('🚀 NODE EDITOR SERVER STARTED');
-  console.log('='.repeat(80));
-  console.log(`Server running at http://localhost:${PORT}/`);
-  console.log(`Main app: http://localhost:${PORT}/`);
-  console.log(`Standalone: http://localhost:${PORT}/standalone.html`);
-  console.log('API endpoint: /api/submit (POST)');
-  console.log('Ready to receive graph submissions and call Gemini 2.0 Flash API!');
-  console.log('='.repeat(80) + '\n');
+// Middleware
+app.use(cors());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Static files
+app.use(express.static('.'));
+app.use('/dist', express.static(path.join(__dirname, 'dist')));
+app.use('/config', express.static(path.join(__dirname, 'config')));
+
+// Initialize services
+let authService;
+let workspaceService;
+let dbService;
+
+async function initializeServices() {
+  try {
+    dbService = DatabaseService.getInstance();
+    await dbService.initialize();
+    
+    authService = AuthenticationService.getInstance();
+    workspaceService = WorkspaceService.getInstance();
+    
+    console.log('Services initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize services:', error);
+    process.exit(1);
+  }
+}
+
+// Authentication middleware
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  const token = authHeader.slice(7);
+  
+  try {
+    const session = await authService.validateSession(token);
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+    
+    req.user = session;
+    next();
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// === Authentication Endpoints ===
+
+// Register
+app.post('/api/auth/register', async (req, res) => {
+  console.log('Registration attempt:', { username: req.body.username });
+  try {
+    const result = await authService.register(req.body);
+    res.json(result);
+  } catch (error) {
+    console.error('Registration error:', error.message, error.stack);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  console.log('Login attempt:', { username: req.body.username });
+  try {
+    const result = await authService.login(req.body);
+    res.json(result);
+  } catch (error) {
+    console.error('Login error:', error.message, error.stack);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Logout
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
+  try {
+    await authService.logout(req.user.sessionToken);
+    res.json({ message: 'Logout successful' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Logout failed' });
+  }
+});
+
+// Validate session
+app.get('/api/auth/session', requireAuth, async (req, res) => {
+  res.json({ session: req.user });
+});
+
+// === Workspace Endpoints ===
+
+// List workspaces
+app.get('/api/workspaces', requireAuth, async (req, res) => {
+  try {
+    const workspaces = await workspaceService.listWorkspaces(req.user.userId);
+    res.json(workspaces);
+  } catch (error) {
+    console.error('List workspaces error:', error);
+    res.status(500).json({ error: 'Failed to list workspaces' });
+  }
+});
+
+// Create workspace
+app.post('/api/workspaces', requireAuth, async (req, res) => {
+  try {
+    const workspace = await workspaceService.createWorkspace(req.user.userId, req.body);
+    res.json(workspace);
+  } catch (error) {
+    console.error('Create workspace error:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get workspace
+app.get('/api/workspaces/:workspaceId', requireAuth, async (req, res) => {
+  try {
+    const workspace = await workspaceService.getWorkspace(
+      req.user.userId,
+      req.params.workspaceId
+    );
+    
+    if (!workspace) {
+      return res.status(404).json({ error: 'Workspace not found' });
+    }
+    
+    res.json(workspace);
+  } catch (error) {
+    console.error('Get workspace error:', error);
+    res.status(500).json({ error: 'Failed to get workspace' });
+  }
+});
+
+// Update workspace
+app.put('/api/workspaces/:workspaceId', requireAuth, async (req, res) => {
+  try {
+    const workspace = await workspaceService.updateWorkspace(
+      req.user.userId,
+      req.params.workspaceId,
+      req.body
+    );
+    res.json(workspace);
+  } catch (error) {
+    console.error('Update workspace error:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Delete workspace
+app.delete('/api/workspaces/:workspaceId', requireAuth, async (req, res) => {
+  try {
+    await workspaceService.deleteWorkspace(req.user.userId, req.params.workspaceId);
+    res.json({ message: 'Workspace deleted successfully' });
+  } catch (error) {
+    console.error('Delete workspace error:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get or create default workspace
+app.get('/api/workspaces/default/get-or-create', requireAuth, async (req, res) => {
+  try {
+    const workspace = await workspaceService.getOrCreateDefaultWorkspace(req.user.userId);
+    res.json(workspace);
+  } catch (error) {
+    console.error('Get default workspace error:', error);
+    res.status(500).json({ error: 'Failed to get default workspace' });
+  }
+});
+
+// Serve index.html for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Error handling
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Start server
+async function start() {
+  await initializeServices();
+  
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+  
+  // Cleanup expired sessions periodically
+  setInterval(async () => {
+    try {
+      await dbService.cleanupExpiredSessions();
+    } catch (error) {
+      console.error('Session cleanup error:', error);
+    }
+  }, 3600000); // Every hour
+}
+
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\nShutting down gracefully...');
+  
+  try {
+    if (dbService) {
+      await dbService.close();
+    }
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+  }
+  
+  process.exit(0);
+});
+
+start().catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });

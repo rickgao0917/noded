@@ -3,15 +3,6 @@
  * @version 1.0.0
  * @compliance ts_readme.xml
  */
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 import { Logger } from '../utils/logger.js';
 import { MarkdownProcessor } from '../utils/markdown.js';
 import { ErrorFactory } from '../types/errors.js';
@@ -43,43 +34,41 @@ export class PreviewToggleManager {
      * @throws ValidationError if blockId is invalid
      * @throws NodeEditorError if DOM manipulation fails
      */
-    toggleBlockPreview(blockId, correlationId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const startTime = performance.now();
-            this.logger.logFunctionEntry('toggleBlockPreview', {
-                blockId: String(blockId),
-                correlationId: correlationId ? String(correlationId) : undefined
-            });
-            try {
-                // Validate blockId
-                if (!this.isValidBlockId(blockId)) {
-                    throw this.errorFactory.createValidationError('blockId', String(blockId), 'valid block ID', 'toggleBlockPreview');
-                }
-                const currentState = this.getBlockPreviewState(blockId);
-                const newMode = currentState.displayMode === 'raw' ? 'rendered' : 'raw';
-                this.logger.logInfo('Toggling preview mode', 'toggleBlockPreview', {
-                    blockId: String(blockId),
-                    fromMode: currentState.displayMode,
-                    toMode: newMode
-                });
-                const newState = yield this.setBlockPreviewMode(blockId, newMode, 'button', correlationId);
-                const executionTime = performance.now() - startTime;
-                this.logger.logPerformance('toggleBlockPreview', 'toggle_operation', executionTime);
-                this.logger.logFunctionExit('toggleBlockPreview', {
-                    newState: newState.displayMode,
-                    executionTime
-                });
-                return newState;
-            }
-            catch (error) {
-                const executionTime = performance.now() - startTime;
-                this.logger.logError(error, 'toggleBlockPreview', {
-                    blockId: String(blockId),
-                    executionTime
-                });
-                throw error;
-            }
+    async toggleBlockPreview(blockId, correlationId) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('toggleBlockPreview', {
+            blockId: String(blockId),
+            correlationId: correlationId ? String(correlationId) : undefined
         });
+        try {
+            // Validate blockId
+            if (!this.isValidBlockId(blockId)) {
+                throw this.errorFactory.createValidationError('blockId', String(blockId), 'valid block ID', 'toggleBlockPreview');
+            }
+            const currentState = this.getBlockPreviewState(blockId);
+            const newMode = currentState.displayMode === 'raw' ? 'rendered' : 'raw';
+            this.logger.logInfo('Toggling preview mode', 'toggleBlockPreview', {
+                blockId: String(blockId),
+                fromMode: currentState.displayMode,
+                toMode: newMode
+            });
+            const newState = await this.setBlockPreviewMode(blockId, newMode, 'button', correlationId);
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('toggleBlockPreview', 'toggle_operation', executionTime);
+            this.logger.logFunctionExit('toggleBlockPreview', {
+                newState: newState.displayMode,
+                executionTime
+            });
+            return newState;
+        }
+        catch (error) {
+            const executionTime = performance.now() - startTime;
+            this.logger.logError(error, 'toggleBlockPreview', {
+                blockId: String(blockId),
+                executionTime
+            });
+            throw error;
+        }
     }
     /**
      * Set the preview mode for a specific block
@@ -89,63 +78,61 @@ export class PreviewToggleManager {
      * @param correlationId - Optional correlation ID for request tracing
      * @returns Promise resolving to the new block preview state
      */
-    setBlockPreviewMode(blockId_1, mode_1) {
-        return __awaiter(this, arguments, void 0, function* (blockId, mode, triggeredBy = 'api', correlationId) {
-            const startTime = performance.now();
-            this.logger.logFunctionEntry('setBlockPreviewMode', {
+    async setBlockPreviewMode(blockId, mode, triggeredBy = 'api', correlationId) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('setBlockPreviewMode', {
+            blockId: String(blockId),
+            mode,
+            triggeredBy,
+            correlationId: correlationId ? String(correlationId) : undefined
+        });
+        try {
+            const currentState = this.getBlockPreviewState(blockId);
+            // No change needed
+            if (currentState.displayMode === mode) {
+                this.logger.logInfo('Preview mode already set', 'setBlockPreviewMode', {
+                    blockId: String(blockId),
+                    mode
+                });
+                return currentState;
+            }
+            // Apply the preview mode to DOM
+            await this.applyPreviewMode(blockId, mode, correlationId);
+            // Update state
+            const newState = {
+                blockId,
+                displayMode: mode,
+                lastToggleTime: Date.now(),
+                isUserPreference: triggeredBy !== 'api'
+            };
+            this.blockStates.set(blockId, newState);
+            // Log toggle event
+            const toggleEvent = {
+                blockId,
+                previousMode: currentState.displayMode,
+                newMode: mode,
+                timestamp: Date.now(),
+                triggeredBy,
+                correlationId
+            };
+            this.logger.logUserInteraction('preview_toggle', 'setBlockPreviewMode', toggleEvent);
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('setBlockPreviewMode', 'mode_change', executionTime);
+            this.logger.logFunctionExit('setBlockPreviewMode', {
+                newMode: mode,
+                executionTime
+            });
+            return newState;
+        }
+        catch (error) {
+            const executionTime = performance.now() - startTime;
+            this.logger.logError(error, 'setBlockPreviewMode', {
                 blockId: String(blockId),
                 mode,
-                triggeredBy,
-                correlationId: correlationId ? String(correlationId) : undefined
+                executionTime
             });
-            try {
-                const currentState = this.getBlockPreviewState(blockId);
-                // No change needed
-                if (currentState.displayMode === mode) {
-                    this.logger.logInfo('Preview mode already set', 'setBlockPreviewMode', {
-                        blockId: String(blockId),
-                        mode
-                    });
-                    return currentState;
-                }
-                // Apply the preview mode to DOM
-                yield this.applyPreviewMode(blockId, mode, correlationId);
-                // Update state
-                const newState = {
-                    blockId,
-                    displayMode: mode,
-                    lastToggleTime: Date.now(),
-                    isUserPreference: triggeredBy !== 'api'
-                };
-                this.blockStates.set(blockId, newState);
-                // Log toggle event
-                const toggleEvent = {
-                    blockId,
-                    previousMode: currentState.displayMode,
-                    newMode: mode,
-                    timestamp: Date.now(),
-                    triggeredBy,
-                    correlationId
-                };
-                this.logger.logUserInteraction('preview_toggle', 'setBlockPreviewMode', toggleEvent);
-                const executionTime = performance.now() - startTime;
-                this.logger.logPerformance('setBlockPreviewMode', 'mode_change', executionTime);
-                this.logger.logFunctionExit('setBlockPreviewMode', {
-                    newMode: mode,
-                    executionTime
-                });
-                return newState;
-            }
-            catch (error) {
-                const executionTime = performance.now() - startTime;
-                this.logger.logError(error, 'setBlockPreviewMode', {
-                    blockId: String(blockId),
-                    mode,
-                    executionTime
-                });
-                throw error;
-            }
-        });
+            throw error;
+        }
     }
     /**
      * Get the current preview state for a block
@@ -183,29 +170,27 @@ export class PreviewToggleManager {
      * @param blockId - Unique identifier for the response block
      * @param correlationId - Optional correlation ID for request tracing
      */
-    initializeResponseBlockPreview(blockId, correlationId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('initializeResponseBlockPreview', {
-                blockId: String(blockId),
-                autoRenderResponses: this.config.autoRenderResponses
-            });
-            try {
-                if (this.config.autoRenderResponses) {
-                    yield this.setBlockPreviewMode(blockId, 'rendered', 'api', correlationId);
-                    this.logger.logInfo('Auto-rendered response block', 'initializeResponseBlockPreview', {
-                        blockId: String(blockId)
-                    });
-                }
-            }
-            catch (error) {
-                // Don't throw for non-critical initialization
-                this.logger.logWarn('Failed to initialize response block preview', 'initializeResponseBlockPreview', {
-                    blockId: String(blockId),
-                    error: error instanceof Error ? error.message : String(error)
+    async initializeResponseBlockPreview(blockId, correlationId) {
+        this.logger.logFunctionEntry('initializeResponseBlockPreview', {
+            blockId: String(blockId),
+            autoRenderResponses: this.config.autoRenderResponses
+        });
+        try {
+            if (this.config.autoRenderResponses) {
+                await this.setBlockPreviewMode(blockId, 'rendered', 'api', correlationId);
+                this.logger.logInfo('Auto-rendered response block', 'initializeResponseBlockPreview', {
+                    blockId: String(blockId)
                 });
             }
-            this.logger.logFunctionExit('initializeResponseBlockPreview', {});
-        });
+        }
+        catch (error) {
+            // Don't throw for non-critical initialization
+            this.logger.logWarn('Failed to initialize response block preview', 'initializeResponseBlockPreview', {
+                blockId: String(blockId),
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+        this.logger.logFunctionExit('initializeResponseBlockPreview', {});
     }
     /**
      * Export all current preview states
@@ -273,66 +258,62 @@ export class PreviewToggleManager {
      * Apply preview mode to DOM elements
      * @private
      */
-    applyPreviewMode(blockId, mode, correlationId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('applyPreviewMode', {
-                blockId: String(blockId),
-                mode
-            });
-            const blockElement = document.querySelector(`[data-block-id="${String(blockId)}"]`);
-            if (!blockElement) {
-                throw this.errorFactory.createDOMError('Block element not found in DOM', 'DOM_ELEMENT_MISSING', 'Block element not found', 'applyPreviewMode');
-            }
-            // Set data attribute for CSS styling
-            blockElement.setAttribute('data-preview-mode', mode);
-            if (mode === 'rendered') {
-                yield this.showRenderedContent(blockId, blockElement, correlationId);
-            }
-            else {
-                this.showRawContent(blockId, blockElement);
-            }
-            // Update toggle button state
-            this.updateToggleButton(blockElement, mode);
-            this.logger.logFunctionExit('applyPreviewMode', { success: true });
+    async applyPreviewMode(blockId, mode, correlationId) {
+        this.logger.logFunctionEntry('applyPreviewMode', {
+            blockId: String(blockId),
+            mode
         });
+        const blockElement = document.querySelector(`[data-block-id="${String(blockId)}"]`);
+        if (!blockElement) {
+            throw this.errorFactory.createDOMError('Block element not found in DOM', 'DOM_ELEMENT_MISSING', 'Block element not found', 'applyPreviewMode');
+        }
+        // Set data attribute for CSS styling
+        blockElement.setAttribute('data-preview-mode', mode);
+        if (mode === 'rendered') {
+            await this.showRenderedContent(blockId, blockElement, correlationId);
+        }
+        else {
+            this.showRawContent(blockId, blockElement);
+        }
+        // Update toggle button state
+        this.updateToggleButton(blockElement, mode);
+        this.logger.logFunctionExit('applyPreviewMode', { success: true });
     }
     /**
      * Show rendered content for a block
      * @private
      */
-    showRenderedContent(blockId, container, _correlationId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const textarea = container.querySelector('textarea');
-            if (!textarea) {
-                throw this.errorFactory.createDOMError('Textarea not found in block', 'TEXTAREA_MISSING', 'Textarea element not found', 'showRenderedContent');
-            }
-            // Get or create rendered content container
-            let renderedContainer = container.querySelector('.rendered-content');
-            if (!renderedContainer) {
-                renderedContainer = document.createElement('div');
-                renderedContainer.className = 'rendered-content';
-                renderedContainer.title = 'Double-click to edit';
-                container.appendChild(renderedContainer);
-            }
-            // Render markdown content
-            const markdownContent = textarea.value;
-            const renderedHTML = this.markdownProcessor.renderMarkdown(markdownContent, 'preview');
-            renderedContainer.innerHTML = renderedHTML;
-            // Preserve the height from textarea to maintain consistent sizing
-            const textareaHeight = textarea.style.height || textarea.offsetHeight + 'px';
-            renderedContainer.style.height = textareaHeight;
-            // Hide textarea, show rendered content
-            textarea.style.display = 'none';
-            renderedContainer.style.display = 'block';
-            // Add hover-to-scroll functionality for preview content
-            const finalContainer = this.setupHoverScrolling(renderedContainer);
-            // Add double-click handler if enabled (after setupHoverScrolling which may clone the element)
-            if (this.config.enableDoubleClickEdit) {
-                finalContainer.addEventListener('dblclick', () => {
-                    this.handleDoubleClickEdit(blockId);
-                });
-            }
-        });
+    async showRenderedContent(blockId, container, _correlationId) {
+        const textarea = container.querySelector('textarea');
+        if (!textarea) {
+            throw this.errorFactory.createDOMError('Textarea not found in block', 'TEXTAREA_MISSING', 'Textarea element not found', 'showRenderedContent');
+        }
+        // Get or create rendered content container
+        let renderedContainer = container.querySelector('.rendered-content');
+        if (!renderedContainer) {
+            renderedContainer = document.createElement('div');
+            renderedContainer.className = 'rendered-content';
+            renderedContainer.title = 'Double-click to edit';
+            container.appendChild(renderedContainer);
+        }
+        // Render markdown content
+        const markdownContent = textarea.value;
+        const renderedHTML = this.markdownProcessor.renderMarkdown(markdownContent, 'preview');
+        renderedContainer.innerHTML = renderedHTML;
+        // Preserve the height from textarea to maintain consistent sizing
+        const textareaHeight = textarea.style.height || textarea.offsetHeight + 'px';
+        renderedContainer.style.height = textareaHeight;
+        // Hide textarea, show rendered content
+        textarea.style.display = 'none';
+        renderedContainer.style.display = 'block';
+        // Add hover-to-scroll functionality for preview content
+        const finalContainer = this.setupHoverScrolling(renderedContainer);
+        // Add double-click handler if enabled (after setupHoverScrolling which may clone the element)
+        if (this.config.enableDoubleClickEdit) {
+            finalContainer.addEventListener('dblclick', () => {
+                this.handleDoubleClickEdit(blockId);
+            });
+        }
     }
     /**
      * Show raw content for a block

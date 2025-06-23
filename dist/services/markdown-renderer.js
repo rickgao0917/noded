@@ -4,15 +4,6 @@
  * Builds on the existing MarkdownProcessor to add advanced features like
  * math rendering, diagrams, caching, and performance monitoring.
  */
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 import { Logger } from '../utils/logger.js';
 import { MarkdownProcessor } from '../utils/markdown.js';
 import { DEFAULT_RENDER_OPTIONS } from '../types/markdown.types.js';
@@ -65,210 +56,204 @@ export class MarkdownRenderer {
     /**
      * Renders markdown content to HTML with all features
      */
-    renderMarkdown(content_1) {
-        return __awaiter(this, arguments, void 0, function* (content, options = DEFAULT_RENDER_OPTIONS, correlationId) {
-            var _a, _b, _c, _d;
-            const startTime = performance.now();
-            this.logger.logFunctionEntry('renderMarkdown', {
+    async renderMarkdown(content, options = DEFAULT_RENDER_OPTIONS, correlationId) {
+        var _a, _b, _c, _d;
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('renderMarkdown', {
+            contentLength: content.length,
+            options,
+            correlationId
+        });
+        try {
+            // Check cache first
+            const cacheKey = this.generateCacheKey(content, options);
+            const cached = this.renderCache.get(cacheKey);
+            if (cached) {
+                this.logger.logDebug('Cache hit for markdown content', 'renderMarkdown', {
+                    cacheKey,
+                    correlationId
+                });
+                const metrics = {
+                    parseTime: 0,
+                    sanitizeTime: 0,
+                    highlightTime: 0,
+                    mathTime: 0,
+                    diagramTime: 0,
+                    totalTime: performance.now() - startTime,
+                    cacheHit: true
+                };
+                this.logPerformanceMetrics(metrics, correlationId);
+                this.logger.logFunctionExit('renderMarkdown', { cached: true });
+                return cached;
+            }
+            // Track individual stage times
+            const stageStartTime = performance.now();
+            // Basic markdown rendering with syntax highlighting
+            let html = await this.markdownProcessor.renderMarkdown(content);
+            const parseTime = performance.now() - stageStartTime;
+            // Process math if enabled
+            const mathStartTime = performance.now();
+            if (options.enableMath && this.hasMathContent(content)) {
+                html = await this.renderMathBlocks(html, correlationId);
+            }
+            const mathTime = performance.now() - mathStartTime;
+            // Process diagrams if enabled
+            const diagramStartTime = performance.now();
+            if (options.enableDiagrams && this.hasDiagramContent(content)) {
+                html = await this.renderMermaidDiagrams(html, correlationId);
+            }
+            const diagramTime = performance.now() - diagramStartTime;
+            // Sanitize if enabled
+            const sanitizeStartTime = performance.now();
+            if (options.sanitize) {
+                html = this.sanitizeHtml(html, correlationId);
+            }
+            const sanitizeTime = performance.now() - sanitizeStartTime;
+            // Apply theme-specific classes
+            if (options.theme && options.theme !== 'default') {
+                html = `<div class="markdown-theme-${options.theme}">${html}</div>`;
+            }
+            const totalTime = performance.now() - startTime;
+            // Create result
+            const result = {
+                html,
+                renderTime: totalTime,
+                usedFeatures: {
+                    syntaxHighlighting: (_a = options.enableSyntaxHighlighting) !== null && _a !== void 0 ? _a : true,
+                    mathRendering: ((_b = options.enableMath) !== null && _b !== void 0 ? _b : true) && this.hasMathContent(content),
+                    diagramSupport: ((_c = options.enableDiagrams) !== null && _c !== void 0 ? _c : true) && this.hasDiagramContent(content),
+                    emojiSupport: (_d = options.enableEmoji) !== null && _d !== void 0 ? _d : true
+                },
+                warnings: this.collectWarnings(content, html)
+            };
+            // Cache the result
+            this.renderCache.set(cacheKey, result);
+            // Log performance metrics
+            const metrics = {
+                parseTime,
+                sanitizeTime,
+                highlightTime: 0, // Included in parseTime
+                mathTime,
+                diagramTime,
+                totalTime,
+                cacheHit: false
+            };
+            this.logPerformanceMetrics(metrics, correlationId);
+            this.logger.logFunctionExit('renderMarkdown', {
+                htmlLength: html.length,
+                renderTime: totalTime
+            });
+            return result;
+        }
+        catch (error) {
+            this.logger.logError(error, 'renderMarkdown', {
                 contentLength: content.length,
                 options,
                 correlationId
             });
-            try {
-                // Check cache first
-                const cacheKey = this.generateCacheKey(content, options);
-                const cached = this.renderCache.get(cacheKey);
-                if (cached) {
-                    this.logger.logDebug('Cache hit for markdown content', 'renderMarkdown', {
-                        cacheKey,
-                        correlationId
-                    });
-                    const metrics = {
-                        parseTime: 0,
-                        sanitizeTime: 0,
-                        highlightTime: 0,
-                        mathTime: 0,
-                        diagramTime: 0,
-                        totalTime: performance.now() - startTime,
-                        cacheHit: true
-                    };
-                    this.logPerformanceMetrics(metrics, correlationId);
-                    this.logger.logFunctionExit('renderMarkdown', { cached: true });
-                    return cached;
-                }
-                // Track individual stage times
-                const stageStartTime = performance.now();
-                // Basic markdown rendering with syntax highlighting
-                let html = yield this.markdownProcessor.renderMarkdown(content);
-                const parseTime = performance.now() - stageStartTime;
-                // Process math if enabled
-                const mathStartTime = performance.now();
-                if (options.enableMath && this.hasMathContent(content)) {
-                    html = yield this.renderMathBlocks(html, correlationId);
-                }
-                const mathTime = performance.now() - mathStartTime;
-                // Process diagrams if enabled
-                const diagramStartTime = performance.now();
-                if (options.enableDiagrams && this.hasDiagramContent(content)) {
-                    html = yield this.renderMermaidDiagrams(html, correlationId);
-                }
-                const diagramTime = performance.now() - diagramStartTime;
-                // Sanitize if enabled
-                const sanitizeStartTime = performance.now();
-                if (options.sanitize) {
-                    html = this.sanitizeHtml(html, correlationId);
-                }
-                const sanitizeTime = performance.now() - sanitizeStartTime;
-                // Apply theme-specific classes
-                if (options.theme && options.theme !== 'default') {
-                    html = `<div class="markdown-theme-${options.theme}">${html}</div>`;
-                }
-                const totalTime = performance.now() - startTime;
-                // Create result
-                const result = {
-                    html,
-                    renderTime: totalTime,
-                    usedFeatures: {
-                        syntaxHighlighting: (_a = options.enableSyntaxHighlighting) !== null && _a !== void 0 ? _a : true,
-                        mathRendering: ((_b = options.enableMath) !== null && _b !== void 0 ? _b : true) && this.hasMathContent(content),
-                        diagramSupport: ((_c = options.enableDiagrams) !== null && _c !== void 0 ? _c : true) && this.hasDiagramContent(content),
-                        emojiSupport: (_d = options.enableEmoji) !== null && _d !== void 0 ? _d : true
-                    },
-                    warnings: this.collectWarnings(content, html)
-                };
-                // Cache the result
-                this.renderCache.set(cacheKey, result);
-                // Log performance metrics
-                const metrics = {
-                    parseTime,
-                    sanitizeTime,
-                    highlightTime: 0, // Included in parseTime
-                    mathTime,
-                    diagramTime,
-                    totalTime,
-                    cacheHit: false
-                };
-                this.logPerformanceMetrics(metrics, correlationId);
-                this.logger.logFunctionExit('renderMarkdown', {
-                    htmlLength: html.length,
-                    renderTime: totalTime
-                });
-                return result;
-            }
-            catch (error) {
-                this.logger.logError(error, 'renderMarkdown', {
-                    contentLength: content.length,
-                    options,
-                    correlationId
-                });
-                throw error;
-            }
-        });
+            throw error;
+        }
     }
     /**
      * Renders math expressions using KaTeX
      */
-    renderMathBlocks(html, correlationId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('renderMathBlocks', { correlationId });
-            try {
-                if (typeof window !== 'undefined' && 'katex' in window) {
-                    const katex = window.katex;
-                    // renderMathInElement is available but not used in this implementation
-                    // Create a temporary container
-                    const container = document.createElement('div');
-                    container.innerHTML = html;
-                    // Process inline math ($...$)
-                    const inlineRegex = /\$([^\$]+)\$/g;
-                    container.innerHTML = container.innerHTML.replace(inlineRegex, (match, math) => {
-                        try {
-                            return katex.renderToString(math, {
-                                displayMode: false,
-                                throwOnError: false
-                            });
-                        }
-                        catch (e) {
-                            this.logger.logWarn(`Failed to render inline math: ${math}`, 'renderMathBlocks', {
-                                error: e,
-                                correlationId
-                            });
-                            return `<code class="math-error">${match}</code>`;
-                        }
-                    });
-                    // Process display math ($$...$$)
-                    const displayRegex = /\$\$([^\$]+)\$\$/g;
-                    container.innerHTML = container.innerHTML.replace(displayRegex, (match, math) => {
-                        try {
-                            return katex.renderToString(math, {
-                                displayMode: true,
-                                throwOnError: false
-                            });
-                        }
-                        catch (e) {
-                            this.logger.logWarn(`Failed to render display math: ${math}`, 'renderMathBlocks', {
-                                error: e,
-                                correlationId
-                            });
-                            return `<pre class="math-error">${match}</pre>`;
-                        }
-                    });
-                    html = container.innerHTML;
-                }
-                this.logger.logFunctionExit('renderMathBlocks');
-                return html;
+    async renderMathBlocks(html, correlationId) {
+        this.logger.logFunctionEntry('renderMathBlocks', { correlationId });
+        try {
+            if (typeof window !== 'undefined' && 'katex' in window) {
+                const katex = window.katex;
+                // renderMathInElement is available but not used in this implementation
+                // Create a temporary container
+                const container = document.createElement('div');
+                container.innerHTML = html;
+                // Process inline math ($...$)
+                const inlineRegex = /\$([^\$]+)\$/g;
+                container.innerHTML = container.innerHTML.replace(inlineRegex, (match, math) => {
+                    try {
+                        return katex.renderToString(math, {
+                            displayMode: false,
+                            throwOnError: false
+                        });
+                    }
+                    catch (e) {
+                        this.logger.logWarn(`Failed to render inline math: ${math}`, 'renderMathBlocks', {
+                            error: e,
+                            correlationId
+                        });
+                        return `<code class="math-error">${match}</code>`;
+                    }
+                });
+                // Process display math ($$...$$)
+                const displayRegex = /\$\$([^\$]+)\$\$/g;
+                container.innerHTML = container.innerHTML.replace(displayRegex, (match, math) => {
+                    try {
+                        return katex.renderToString(math, {
+                            displayMode: true,
+                            throwOnError: false
+                        });
+                    }
+                    catch (e) {
+                        this.logger.logWarn(`Failed to render display math: ${math}`, 'renderMathBlocks', {
+                            error: e,
+                            correlationId
+                        });
+                        return `<pre class="math-error">${match}</pre>`;
+                    }
+                });
+                html = container.innerHTML;
             }
-            catch (error) {
-                this.logger.logError(error, 'renderMathBlocks', { correlationId });
-                return html; // Return original HTML on error
-            }
-        });
+            this.logger.logFunctionExit('renderMathBlocks');
+            return html;
+        }
+        catch (error) {
+            this.logger.logError(error, 'renderMathBlocks', { correlationId });
+            return html; // Return original HTML on error
+        }
     }
     /**
      * Renders Mermaid diagrams
      */
-    renderMermaidDiagrams(html, correlationId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            this.logger.logFunctionEntry('renderMermaidDiagrams', { correlationId });
-            try {
-                if (typeof window !== 'undefined' && 'mermaid' in window) {
-                    const mermaid = window.mermaid;
-                    // Find all mermaid code blocks
-                    const mermaidRegex = /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g;
-                    let match;
-                    let diagramId = 0;
-                    while ((match = mermaidRegex.exec(html)) !== null) {
-                        const diagramCode = match[1] || '';
-                        const elementId = `mermaid-diagram-${Date.now()}-${diagramId++}`;
-                        try {
-                            // Create a temporary container
-                            const container = document.createElement('div');
-                            container.id = elementId;
-                            container.textContent = this.unescapeHtml(diagramCode);
-                            // Render the diagram
-                            const diagramText = container.textContent || '';
-                            const { svg } = yield mermaid.render(elementId, diagramText);
-                            // Replace the code block with the rendered diagram
-                            html = html.replace(match[0], `<div class="mermaid-diagram">${svg}</div>`);
-                        }
-                        catch (e) {
-                            this.logger.logWarn('Failed to render Mermaid diagram', 'renderMermaidDiagrams', {
-                                error: e,
-                                diagramCode,
-                                correlationId
-                            });
-                            // Keep the original code block with error styling
-                            html = html.replace(match[0], `<pre class="diagram-error"><code>${match[1]}</code></pre>`);
-                        }
+    async renderMermaidDiagrams(html, correlationId) {
+        this.logger.logFunctionEntry('renderMermaidDiagrams', { correlationId });
+        try {
+            if (typeof window !== 'undefined' && 'mermaid' in window) {
+                const mermaid = window.mermaid;
+                // Find all mermaid code blocks
+                const mermaidRegex = /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g;
+                let match;
+                let diagramId = 0;
+                while ((match = mermaidRegex.exec(html)) !== null) {
+                    const diagramCode = match[1] || '';
+                    const elementId = `mermaid-diagram-${Date.now()}-${diagramId++}`;
+                    try {
+                        // Create a temporary container
+                        const container = document.createElement('div');
+                        container.id = elementId;
+                        container.textContent = this.unescapeHtml(diagramCode);
+                        // Render the diagram
+                        const diagramText = container.textContent || '';
+                        const { svg } = await mermaid.render(elementId, diagramText);
+                        // Replace the code block with the rendered diagram
+                        html = html.replace(match[0], `<div class="mermaid-diagram">${svg}</div>`);
+                    }
+                    catch (e) {
+                        this.logger.logWarn('Failed to render Mermaid diagram', 'renderMermaidDiagrams', {
+                            error: e,
+                            diagramCode,
+                            correlationId
+                        });
+                        // Keep the original code block with error styling
+                        html = html.replace(match[0], `<pre class="diagram-error"><code>${match[1]}</code></pre>`);
                     }
                 }
-                this.logger.logFunctionExit('renderMermaidDiagrams');
-                return html;
             }
-            catch (error) {
-                this.logger.logError(error, 'renderMermaidDiagrams', { correlationId });
-                return html; // Return original HTML on error
-            }
-        });
+            this.logger.logFunctionExit('renderMermaidDiagrams');
+            return html;
+        }
+        catch (error) {
+            this.logger.logError(error, 'renderMermaidDiagrams', { correlationId });
+            return html; // Return original HTML on error
+        }
     }
     /**
      * Sanitizes HTML output using DOMPurify

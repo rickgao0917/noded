@@ -10,15 +10,6 @@
  * editor.addRootNode();
  * ```
  */
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 import { Logger } from '../utils/logger.js';
 import { Validator } from '../utils/type-guards.js';
 import { ErrorFactory, NodeEditorError, TreeStructureError, ValidationError } from '../types/errors.js';
@@ -1234,6 +1225,7 @@ export class GraphEditor {
             const executionTime = performance.now() - startTime;
             this.logger.logPerformance('addChild', 'child_creation', executionTime);
             this.logger.logFunctionExit('addChild', { parentId, childId }, executionTime);
+            this.emitGraphChanged();
             return childId;
         }
         catch (error) {
@@ -1280,6 +1272,7 @@ export class GraphEditor {
                 const executionTime = performance.now() - startTime;
                 this.logger.logPerformance('addMarkdownBlock', 'block_addition', executionTime);
                 this.logger.logFunctionExit('addMarkdownBlock', { nodeId, blockId: newBlock.id }, executionTime);
+                this.emitGraphChanged();
             }
             else {
                 throw this.errorFactory.createNodeEditorError(`Node ${nodeId} does not exist`, 'NODE_NOT_FOUND', 'The selected node could not be found.', 'addMarkdownBlock', { nodeId });
@@ -1433,80 +1426,78 @@ export class GraphEditor {
      * @throws {ValidationError} When nodeId is invalid
      * @throws {NodeEditorError} When submission fails
      */
-    submitToLLM(nodeId, onStreamingUpdate) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const startTime = performance.now();
-            this.logger.logFunctionEntry('submitToLLM', { nodeId });
+    async submitToLLM(nodeId, onStreamingUpdate) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('submitToLLM', { nodeId });
+        try {
+            this.validator.validateNodeId(nodeId, 'submitToLLM');
+            const node = this.nodes.get(nodeId);
+            const nodeExists = !!node;
+            this.logger.logBranch('submitToLLM', 'nodeExists', nodeExists, { nodeId });
+            if (!nodeExists) {
+                throw this.errorFactory.createValidationError('nodeId', nodeId, 'existing node ID', 'submitToLLM');
+            }
+            // Extract prompt content
+            const promptBlock = node.blocks.find(block => block.type === 'prompt');
+            const promptFound = !!promptBlock;
+            this.logger.logBranch('submitToLLM', 'promptFound', promptFound, { nodeId });
+            if (!promptFound || !promptBlock.content.trim()) {
+                throw this.errorFactory.createValidationError('promptContent', promptBlock === null || promptBlock === void 0 ? void 0 : promptBlock.content, 'non-empty prompt', 'submitToLLM');
+            }
+            // Build conversation context
+            const conversationContext = this.buildConversationContext(nodeId);
+            // Construct the full prompt with context
+            let fullPrompt = promptBlock.content;
+            if (conversationContext) {
+                // Only prepend context if there's conversation history
+                fullPrompt = conversationContext + '\n\nUser: ' + promptBlock.content;
+            }
+            this.logger.logInfo('Submitting prompt with context', 'submitToLLM', {
+                nodeId,
+                contextLength: conversationContext.length,
+                promptLength: promptBlock.content.length,
+                fullPromptLength: fullPrompt.length
+            });
+            // Show loading indicator
+            this.showLoadingIndicator(nodeId);
             try {
-                this.validator.validateNodeId(nodeId, 'submitToLLM');
-                const node = this.nodes.get(nodeId);
-                const nodeExists = !!node;
-                this.logger.logBranch('submitToLLM', 'nodeExists', nodeExists, { nodeId });
-                if (!nodeExists) {
-                    throw this.errorFactory.createValidationError('nodeId', nodeId, 'existing node ID', 'submitToLLM');
-                }
-                // Extract prompt content
-                const promptBlock = node.blocks.find(block => block.type === 'prompt');
-                const promptFound = !!promptBlock;
-                this.logger.logBranch('submitToLLM', 'promptFound', promptFound, { nodeId });
-                if (!promptFound || !promptBlock.content.trim()) {
-                    throw this.errorFactory.createValidationError('promptContent', promptBlock === null || promptBlock === void 0 ? void 0 : promptBlock.content, 'non-empty prompt', 'submitToLLM');
-                }
-                // Build conversation context
-                const conversationContext = this.buildConversationContext(nodeId);
-                // Construct the full prompt with context
-                let fullPrompt = promptBlock.content;
-                if (conversationContext) {
-                    // Only prepend context if there's conversation history
-                    fullPrompt = conversationContext + '\n\nUser: ' + promptBlock.content;
-                }
-                this.logger.logInfo('Submitting prompt with context', 'submitToLLM', {
-                    nodeId,
-                    contextLength: conversationContext.length,
-                    promptLength: promptBlock.content.length,
-                    fullPromptLength: fullPrompt.length
+                // Create response block immediately
+                const responseBlockId = this.createResponseBlock(nodeId, '');
+                // Submit to Gemini service with streaming
+                let responseContent = '';
+                await geminiService.sendMessage(fullPrompt, (chunk) => {
+                    responseContent += chunk;
+                    this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
+                    // Call the external streaming callback if provided
+                    if (onStreamingUpdate) {
+                        onStreamingUpdate(responseContent);
+                    }
                 });
-                // Show loading indicator
-                this.showLoadingIndicator(nodeId);
-                try {
-                    // Create response block immediately
-                    const responseBlockId = this.createResponseBlock(nodeId, '');
-                    // Submit to Gemini service with streaming
-                    let responseContent = '';
-                    yield geminiService.sendMessage(fullPrompt, (chunk) => {
-                        responseContent += chunk;
-                        this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
-                        // Call the external streaming callback if provided
-                        if (onStreamingUpdate) {
-                            onStreamingUpdate(responseContent);
-                        }
-                    });
-                    // Response block completed - initialize preview mode
-                    yield this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
-                    this.logger.logInfo('LLM submission completed successfully', 'submitToLLM', {
-                        nodeId,
-                        responseLength: responseContent.length
-                    });
-                }
-                finally {
-                    this.hideLoadingIndicator(nodeId);
-                }
-                const executionTime = performance.now() - startTime;
-                this.logger.logPerformance('submitToLLM', 'llm_submission', executionTime);
-                this.logger.logFunctionExit('submitToLLM', {
+                // Response block completed - initialize preview mode
+                await this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
+                this.logger.logInfo('LLM submission completed successfully', 'submitToLLM', {
                     nodeId,
-                    responseGenerated: true
-                }, executionTime);
+                    responseLength: responseContent.length
+                });
             }
-            catch (error) {
-                this.logger.logError(error, 'submitToLLM', { nodeId });
+            finally {
                 this.hideLoadingIndicator(nodeId);
-                if (error instanceof ValidationError || error instanceof NodeEditorError) {
-                    throw error;
-                }
-                throw this.errorFactory.createNodeEditorError('Failed to submit to LLM', 'LLM_SUBMISSION_FAILED', 'Unable to get AI response. Please try again.', 'submitToLLM', { nodeId, error: String(error) });
             }
-        });
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('submitToLLM', 'llm_submission', executionTime);
+            this.logger.logFunctionExit('submitToLLM', {
+                nodeId,
+                responseGenerated: true
+            }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'submitToLLM', { nodeId });
+            this.hideLoadingIndicator(nodeId);
+            if (error instanceof ValidationError || error instanceof NodeEditorError) {
+                throw error;
+            }
+            throw this.errorFactory.createNodeEditorError('Failed to submit to LLM', 'LLM_SUBMISSION_FAILED', 'Unable to get AI response. Please try again.', 'submitToLLM', { nodeId, error: String(error) });
+        }
     }
     /**
      * Create response block for LLM-generated content
@@ -1657,98 +1648,96 @@ export class GraphEditor {
      * @param blockIndex - Index of the block to update
      * @param content - New content for the block
      */
-    updateBlockContent(nodeId, blockIdOrIndex, content) {
-        return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b, _c;
-            let blockIndex;
-            let blockId;
-            // Determine if we're dealing with blockId or blockIndex
-            if (typeof blockIdOrIndex === 'string') {
-                blockId = blockIdOrIndex;
-                const node = this.nodes.get(nodeId);
-                blockIndex = (_a = node === null || node === void 0 ? void 0 : node.blocks.findIndex(b => b.id === blockId)) !== null && _a !== void 0 ? _a : -1;
+    async updateBlockContent(nodeId, blockIdOrIndex, content) {
+        var _a, _b, _c;
+        let blockIndex;
+        let blockId;
+        // Determine if we're dealing with blockId or blockIndex
+        if (typeof blockIdOrIndex === 'string') {
+            blockId = blockIdOrIndex;
+            const node = this.nodes.get(nodeId);
+            blockIndex = (_a = node === null || node === void 0 ? void 0 : node.blocks.findIndex(b => b.id === blockId)) !== null && _a !== void 0 ? _a : -1;
+        }
+        else {
+            blockIndex = blockIdOrIndex;
+            const node = this.nodes.get(nodeId);
+            blockId = (_c = (_b = node === null || node === void 0 ? void 0 : node.blocks[blockIndex]) === null || _b === void 0 ? void 0 : _b.id) !== null && _c !== void 0 ? _c : '';
+        }
+        this.logger.logFunctionEntry('updateBlockContent', { nodeId, blockIndex, blockId, contentLength: content.length });
+        try {
+            this.validator.validateNodeId(nodeId, 'updateBlockContent');
+            if (typeof blockIdOrIndex === 'number') {
+                this.validator.validateRange(blockIndex, 0, 1000, 'blockIndex', 'updateBlockContent');
             }
-            else {
-                blockIndex = blockIdOrIndex;
-                const node = this.nodes.get(nodeId);
-                blockId = (_c = (_b = node === null || node === void 0 ? void 0 : node.blocks[blockIndex]) === null || _b === void 0 ? void 0 : _b.id) !== null && _c !== void 0 ? _c : '';
-            }
-            this.logger.logFunctionEntry('updateBlockContent', { nodeId, blockIndex, blockId, contentLength: content.length });
-            try {
-                this.validator.validateNodeId(nodeId, 'updateBlockContent');
-                if (typeof blockIdOrIndex === 'number') {
-                    this.validator.validateRange(blockIndex, 0, 1000, 'blockIndex', 'updateBlockContent');
-                }
-                const node = this.nodes.get(nodeId);
-                const nodeExists = !!node;
-                this.logger.logBranch('updateBlockContent', 'nodeExists', nodeExists, { nodeId });
-                if (node && blockIndex >= 0 && blockIndex < node.blocks.length) {
-                    const block = node.blocks[blockIndex];
-                    const oldContent = block.content;
-                    // Check if we should create a branch
-                    if (this.branchingService.shouldCreateBranch(block.type, EditSource.NODE_BLOCK_DIRECT)) {
-                        this.logger.logInfo('Creating branch for block edit', 'updateBlockContent', {
-                            nodeId,
-                            blockId: block.id,
-                            blockType: block.type
-                        });
-                        try {
-                            // Create a branch instead of updating in place
-                            const branchResult = yield this.branchingService.createBranchFromEdit(nodeId, block.id, content, EditSource.NODE_BLOCK_DIRECT);
-                            if (branchResult.success) {
-                                // Get the new node from the branching service
-                                const newNode = this.branchingService.getNode(branchResult.newNodeId);
-                                if (newNode) {
-                                    // Add the node to the graph editor
-                                    this.addNodeToGraph(newNode);
-                                }
-                                // Record branch in version history
-                                this.versionHistoryManager.recordBranch(branchResult.branchMetadata);
-                                this.logger.logInfo('Branch created successfully', 'updateBlockContent', {
-                                    originalNodeId: nodeId,
-                                    newNodeId: branchResult.newNodeId
-                                });
-                                // Return early - branching completed successfully
-                                this.logger.logFunctionExit('updateBlockContent', undefined);
-                                return;
+            const node = this.nodes.get(nodeId);
+            const nodeExists = !!node;
+            this.logger.logBranch('updateBlockContent', 'nodeExists', nodeExists, { nodeId });
+            if (node && blockIndex >= 0 && blockIndex < node.blocks.length) {
+                const block = node.blocks[blockIndex];
+                const oldContent = block.content;
+                // Check if we should create a branch
+                if (this.branchingService.shouldCreateBranch(block.type, EditSource.NODE_BLOCK_DIRECT)) {
+                    this.logger.logInfo('Creating branch for block edit', 'updateBlockContent', {
+                        nodeId,
+                        blockId: block.id,
+                        blockType: block.type
+                    });
+                    try {
+                        // Create a branch instead of updating in place
+                        const branchResult = await this.branchingService.createBranchFromEdit(nodeId, block.id, content, EditSource.NODE_BLOCK_DIRECT);
+                        if (branchResult.success) {
+                            // Get the new node from the branching service
+                            const newNode = this.branchingService.getNode(branchResult.newNodeId);
+                            if (newNode) {
+                                // Add the node to the graph editor
+                                this.addNodeToGraph(newNode);
                             }
-                        }
-                        catch (branchError) {
-                            this.logger.logError(branchError, 'updateBlockContent.branching', {
-                                nodeId,
-                                blockId,
-                                blockType: block.type,
-                                errorMessage: branchError.message
+                            // Record branch in version history
+                            this.versionHistoryManager.recordBranch(branchResult.branchMetadata);
+                            this.logger.logInfo('Branch created successfully', 'updateBlockContent', {
+                                originalNodeId: nodeId,
+                                newNodeId: branchResult.newNodeId
                             });
-                            // Fall through to regular update if branching fails
-                            throw branchError;
+                            // Return early - branching completed successfully
+                            this.logger.logFunctionExit('updateBlockContent', undefined);
+                            return;
                         }
                     }
-                    else {
-                        // For markdown blocks, update in place
-                        block.content = content;
-                        this.logger.logVariableAssignment('updateBlockContent', 'blockContent', content.substring(0, 100));
-                        this.logger.logInfo('Block content updated in place', 'updateBlockContent', {
+                    catch (branchError) {
+                        this.logger.logError(branchError, 'updateBlockContent.branching', {
                             nodeId,
-                            blockIndex,
-                            blockId: block.id,
+                            blockId,
                             blockType: block.type,
-                            oldLength: oldContent.length,
-                            newLength: content.length
+                            errorMessage: branchError.message
                         });
+                        // Fall through to regular update if branching fails
+                        throw branchError;
                     }
-                    this.logger.logFunctionExit('updateBlockContent', { nodeId, blockIndex, contentLength: content.length });
                 }
                 else {
-                    const errorMsg = node ? 'Block not found' : 'Node not found';
-                    this.logger.logWarn(errorMsg, 'updateBlockContent', { nodeId, blockIndex, blockId });
+                    // For markdown blocks, update in place
+                    block.content = content;
+                    this.logger.logVariableAssignment('updateBlockContent', 'blockContent', content.substring(0, 100));
+                    this.logger.logInfo('Block content updated in place', 'updateBlockContent', {
+                        nodeId,
+                        blockIndex,
+                        blockId: block.id,
+                        blockType: block.type,
+                        oldLength: oldContent.length,
+                        newLength: content.length
+                    });
                 }
+                this.logger.logFunctionExit('updateBlockContent', { nodeId, blockIndex, contentLength: content.length });
             }
-            catch (error) {
-                this.logger.logError(error, 'updateBlockContent', { nodeId, blockIndex, blockId });
-                throw this.errorFactory.createNodeEditorError(`Failed to update block content`, 'UPDATE_CONTENT_FAILED', 'Unable to save your changes.', 'updateBlockContent', { nodeId, blockIndex, blockId, error: String(error) });
+            else {
+                const errorMsg = node ? 'Block not found' : 'Node not found';
+                this.logger.logWarn(errorMsg, 'updateBlockContent', { nodeId, blockIndex, blockId });
             }
-        });
+        }
+        catch (error) {
+            this.logger.logError(error, 'updateBlockContent', { nodeId, blockIndex, blockId });
+            throw this.errorFactory.createNodeEditorError(`Failed to update block content`, 'UPDATE_CONTENT_FAILED', 'Unable to save your changes.', 'updateBlockContent', { nodeId, blockIndex, blockId, error: String(error) });
+        }
     }
     /**
      * Delete a node and handle tree structure updates
@@ -1813,6 +1802,7 @@ export class GraphEditor {
             const executionTime = performance.now() - startTime;
             this.logger.logPerformance('deleteNode', 'node_deletion', executionTime);
             this.logger.logFunctionExit('deleteNode', { nodeId, remainingNodes: this.nodes.size }, executionTime);
+            this.emitGraphChanged();
         }
         catch (error) {
             this.logger.logError(error, 'deleteNode', { nodeId });
@@ -2223,6 +2213,7 @@ export class GraphEditor {
             const executionTime = performance.now() - startTime;
             this.logger.logPerformance('addRootNode', 'root_creation', executionTime);
             this.logger.logFunctionExit('addRootNode', { rootId }, executionTime);
+            this.emitGraphChanged();
         }
         catch (error) {
             this.logger.logError(error, 'addRootNode');
@@ -2961,52 +2952,50 @@ export class GraphEditor {
      * @param mode - Specific mode to set (raw or rendered)
      * @private
      */
-    handlePreviewToggle(blockId, mode) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const startTime = performance.now();
-            this.logger.logFunctionEntry('handlePreviewToggle', { blockId, mode });
-            try {
-                // Preserve block size before toggling
-                const targetMode = mode || 'rendered'; // Default to rendered if toggling
-                this.blockSizeManager.preserveBlockSize(blockId, targetMode);
-                if (mode) {
-                    // Set specific mode
-                    yield this.previewToggleManager.setBlockPreviewMode(blockId, mode, 'button');
-                }
-                else {
-                    // Toggle mode
-                    yield this.previewToggleManager.toggleBlockPreview(blockId);
-                }
-                // Re-render the node to update the button state
-                const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
-                if (blockEl) {
-                    const nodeEl = blockEl.closest('.node');
-                    if (nodeEl) {
-                        const nodeId = nodeEl.getAttribute('data-node-id');
-                        if (nodeId) {
-                            const node = this.nodes.get(nodeId);
-                            if (node) {
-                                this.renderNode(node);
-                            }
+    async handlePreviewToggle(blockId, mode) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('handlePreviewToggle', { blockId, mode });
+        try {
+            // Preserve block size before toggling
+            const targetMode = mode || 'rendered'; // Default to rendered if toggling
+            this.blockSizeManager.preserveBlockSize(blockId, targetMode);
+            if (mode) {
+                // Set specific mode
+                await this.previewToggleManager.setBlockPreviewMode(blockId, mode, 'button');
+            }
+            else {
+                // Toggle mode
+                await this.previewToggleManager.toggleBlockPreview(blockId);
+            }
+            // Re-render the node to update the button state
+            const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+            if (blockEl) {
+                const nodeEl = blockEl.closest('.node');
+                if (nodeEl) {
+                    const nodeId = nodeEl.getAttribute('data-node-id');
+                    if (nodeId) {
+                        const node = this.nodes.get(nodeId);
+                        if (node) {
+                            this.renderNode(node);
                         }
                     }
                 }
-                const executionTime = performance.now() - startTime;
-                this.logger.logPerformance('handlePreviewToggle', 'toggle_operation', executionTime);
-                this.logger.logFunctionExit('handlePreviewToggle', {
-                    blockId,
-                    executionTime
-                });
             }
-            catch (error) {
-                const executionTime = performance.now() - startTime;
-                this.logger.logError(error, 'handlePreviewToggle', {
-                    blockId,
-                    executionTime
-                });
-                // Error is already logged, no need for additional user message
-            }
-        });
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('handlePreviewToggle', 'toggle_operation', executionTime);
+            this.logger.logFunctionExit('handlePreviewToggle', {
+                blockId,
+                executionTime
+            });
+        }
+        catch (error) {
+            const executionTime = performance.now() - startTime;
+            this.logger.logError(error, 'handlePreviewToggle', {
+                blockId,
+                executionTime
+            });
+            // Error is already logged, no need for additional user message
+        }
     }
     /**
      * Toggle the expansion state of a chat continuation interface
@@ -3064,123 +3053,121 @@ export class GraphEditor {
      * @param blockId - ID of the response block
      * @private
      */
-    submitChatContinuation(nodeId, blockId) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const startTime = performance.now();
-            this.logger.logFunctionEntry('submitChatContinuation', { nodeId, blockId });
+    async submitChatContinuation(nodeId, blockId) {
+        const startTime = performance.now();
+        this.logger.logFunctionEntry('submitChatContinuation', { nodeId, blockId });
+        try {
+            const stateKey = `${nodeId}_${blockId}`;
+            const state = this.chatContinuationStates.get(stateKey);
+            if (!state) {
+                this.logger.logWarn('Chat continuation state not found', 'submitChatContinuation', { nodeId, blockId });
+                return;
+            }
+            // Get chat input
+            const chatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
+            const textarea = chatEl === null || chatEl === void 0 ? void 0 : chatEl.querySelector('.chat-input');
+            if (!textarea || !textarea.value.trim()) {
+                this.logger.logWarn('No chat input provided', 'submitChatContinuation', { nodeId, blockId });
+                return;
+            }
+            const chatInput = textarea.value.trim();
+            // Update state to loading
+            state.isLoading = true;
+            state.hasError = false;
+            delete state.errorMessage;
+            state.lastUpdated = Date.now();
+            // Update UI
+            const submitBtn = chatEl.querySelector('.submit-chat');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Sending...';
+            }
+            textarea.disabled = true;
             try {
-                const stateKey = `${nodeId}_${blockId}`;
-                const state = this.chatContinuationStates.get(stateKey);
-                if (!state) {
-                    this.logger.logWarn('Chat continuation state not found', 'submitChatContinuation', { nodeId, blockId });
-                    return;
+                // Get the full conversation context
+                const node = this.nodes.get(nodeId);
+                if (!node) {
+                    throw new Error(`Node ${nodeId} not found`);
                 }
-                // Get chat input
-                const chatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
-                const textarea = chatEl === null || chatEl === void 0 ? void 0 : chatEl.querySelector('.chat-input');
-                if (!textarea || !textarea.value.trim()) {
-                    this.logger.logWarn('No chat input provided', 'submitChatContinuation', { nodeId, blockId });
-                    return;
+                // Build conversation history
+                let conversationContext = '';
+                for (const block of node.blocks) {
+                    if (block.type === 'prompt') {
+                        conversationContext += `User: ${block.content}\n\n`;
+                    }
+                    else if (block.type === 'response') {
+                        conversationContext += `Assistant: ${block.content}\n\n`;
+                    }
                 }
-                const chatInput = textarea.value.trim();
-                // Update state to loading
-                state.isLoading = true;
-                state.hasError = false;
-                delete state.errorMessage;
-                state.lastUpdated = Date.now();
+                // Add the new chat input
+                conversationContext += `User: ${chatInput}`;
+                // Create a new response block
+                const responseBlockId = this.createResponseBlock(nodeId, '');
+                // Submit to Gemini with streaming
+                let responseContent = '';
+                await geminiService.sendMessage(conversationContext, (chunk) => {
+                    responseContent += chunk;
+                    this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
+                });
+                // Initialize preview mode for the new response
+                await this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
+                // Clear the chat input and collapse
+                textarea.value = '';
+                state.isExpanded = false;
+                state.isLoading = false;
                 // Update UI
-                const submitBtn = chatEl.querySelector('.submit-chat');
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Sending...';
+                const newChatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
+                if (newChatEl) {
+                    newChatEl.setAttribute('data-expanded', 'false');
+                    const expandIcon = newChatEl.querySelector('.expand-icon');
+                    const expandText = newChatEl.querySelector('.expand-text');
+                    const content = newChatEl.querySelector('.chat-continuation-content');
+                    if (expandIcon)
+                        expandIcon.textContent = '▶';
+                    if (expandText)
+                        expandText.textContent = 'Continue conversation';
+                    if (content)
+                        content.style.display = 'none';
                 }
-                textarea.disabled = true;
-                try {
-                    // Get the full conversation context
-                    const node = this.nodes.get(nodeId);
-                    if (!node) {
-                        throw new Error(`Node ${nodeId} not found`);
-                    }
-                    // Build conversation history
-                    let conversationContext = '';
-                    for (const block of node.blocks) {
-                        if (block.type === 'prompt') {
-                            conversationContext += `User: ${block.content}\n\n`;
-                        }
-                        else if (block.type === 'response') {
-                            conversationContext += `Assistant: ${block.content}\n\n`;
-                        }
-                    }
-                    // Add the new chat input
-                    conversationContext += `User: ${chatInput}`;
-                    // Create a new response block
-                    const responseBlockId = this.createResponseBlock(nodeId, '');
-                    // Submit to Gemini with streaming
-                    let responseContent = '';
-                    yield geminiService.sendMessage(conversationContext, (chunk) => {
-                        responseContent += chunk;
-                        this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
-                    });
-                    // Initialize preview mode for the new response
-                    yield this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
-                    // Clear the chat input and collapse
-                    textarea.value = '';
-                    state.isExpanded = false;
-                    state.isLoading = false;
-                    // Update UI
-                    const newChatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
-                    if (newChatEl) {
-                        newChatEl.setAttribute('data-expanded', 'false');
-                        const expandIcon = newChatEl.querySelector('.expand-icon');
-                        const expandText = newChatEl.querySelector('.expand-text');
-                        const content = newChatEl.querySelector('.chat-continuation-content');
-                        if (expandIcon)
-                            expandIcon.textContent = '▶';
-                        if (expandText)
-                            expandText.textContent = 'Continue conversation';
-                        if (content)
-                            content.style.display = 'none';
-                    }
-                    this.logger.logInfo('Chat continuation submitted successfully', 'submitChatContinuation', {
-                        nodeId,
-                        blockId,
-                        inputLength: chatInput.length,
-                        responseLength: responseContent.length
-                    });
-                }
-                catch (error) {
-                    // Update state with error
-                    state.hasError = true;
-                    state.errorMessage = error instanceof Error ? error.message : 'Failed to send message';
-                    state.isLoading = false;
-                    // Re-render to show error
-                    const errorNode = this.nodes.get(nodeId);
-                    if (errorNode) {
-                        this.rerenderNode(errorNode);
-                    }
-                    throw error;
-                }
-                const executionTime = performance.now() - startTime;
-                this.logger.logPerformance('submitChatContinuation', 'chat_submission', executionTime);
-                this.logger.logFunctionExit('submitChatContinuation', { nodeId, blockId }, executionTime);
+                this.logger.logInfo('Chat continuation submitted successfully', 'submitChatContinuation', {
+                    nodeId,
+                    blockId,
+                    inputLength: chatInput.length,
+                    responseLength: responseContent.length
+                });
             }
             catch (error) {
-                this.logger.logError(error, 'submitChatContinuation', { nodeId, blockId });
-                // Re-enable UI on error
-                const chatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
-                if (chatEl) {
-                    const submitBtn = chatEl.querySelector('.submit-chat');
-                    const textarea = chatEl.querySelector('.chat-input');
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Send';
-                    }
-                    if (textarea) {
-                        textarea.disabled = false;
-                    }
+                // Update state with error
+                state.hasError = true;
+                state.errorMessage = error instanceof Error ? error.message : 'Failed to send message';
+                state.isLoading = false;
+                // Re-render to show error
+                const errorNode = this.nodes.get(nodeId);
+                if (errorNode) {
+                    this.rerenderNode(errorNode);
+                }
+                throw error;
+            }
+            const executionTime = performance.now() - startTime;
+            this.logger.logPerformance('submitChatContinuation', 'chat_submission', executionTime);
+            this.logger.logFunctionExit('submitChatContinuation', { nodeId, blockId }, executionTime);
+        }
+        catch (error) {
+            this.logger.logError(error, 'submitChatContinuation', { nodeId, blockId });
+            // Re-enable UI on error
+            const chatEl = document.querySelector(`.chat-continuation[data-node-id="${nodeId}"][data-block-id="${blockId}"]`);
+            if (chatEl) {
+                const submitBtn = chatEl.querySelector('.submit-chat');
+                const textarea = chatEl.querySelector('.chat-input');
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Send';
+                }
+                if (textarea) {
+                    textarea.disabled = false;
                 }
             }
-        });
+        }
     }
     // Removed handleResponseComplete method since auto-rendering is disabled
     /**
@@ -3309,8 +3296,7 @@ export class GraphEditor {
      */
     getCanvasState() {
         return {
-            selectedNodeId: this.selectedNode ? this.selectedNode.id : null,
-            canvasOffset: { x: this.panX, y: this.panY },
+            pan: { x: this.panX, y: this.panY },
             zoom: this.scale
         };
     }
@@ -3394,6 +3380,7 @@ export class GraphEditor {
             blockId,
             remainingBlocks: node.blocks.length
         });
+        this.emitGraphChanged();
     }
     /**
      * Remove a block from the DOM without full node re-rendering
@@ -3467,5 +3454,82 @@ export class GraphEditor {
      */
     getVersionHistoryManager() {
         return this.versionHistoryManager;
+    }
+    /**
+     * Export user data for persistence
+     * @returns Array of GraphNode objects
+     */
+    exportUserData() {
+        this.logger.logFunctionEntry('exportUserData');
+        try {
+            const nodes = Array.from(this.nodes.values());
+            this.logger.logInfo('User data exported', 'exportUserData', { nodeCount: nodes.length });
+            return nodes;
+        }
+        catch (error) {
+            this.logger.logError(error, 'exportUserData');
+            return [];
+        }
+        finally {
+            this.logger.logFunctionExit('exportUserData');
+        }
+    }
+    /**
+     * Import user data from persistence
+     * @param nodes - Array of GraphNode objects
+     * @param canvasState - Optional canvas state to restore
+     */
+    async importUserData(nodes, canvasState) {
+        this.logger.logFunctionEntry('importUserData', { nodeCount: nodes.length });
+        try {
+            // Clear existing nodes
+            this.nodes.clear();
+            this.canvasContent.innerHTML = '';
+            // Import nodes
+            for (const nodeData of nodes) {
+                const node = Object.assign({}, nodeData);
+                this.nodes.set(node.id, node);
+                this.renderNode(node);
+            }
+            // Restore canvas state if provided
+            if (canvasState) {
+                if (canvasState.pan) {
+                    this.panX = canvasState.pan.x;
+                    this.panY = canvasState.pan.y;
+                }
+                if (canvasState.zoom) {
+                    this.scale = canvasState.zoom;
+                }
+                this.updateCanvasTransform();
+            }
+            // Update connections
+            this.updateConnections();
+            this.logger.logInfo('User data imported successfully', 'importUserData', {
+                nodeCount: nodes.length,
+                hasCanvasState: !!canvasState
+            });
+        }
+        catch (error) {
+            this.logger.logError(error, 'importUserData');
+            throw error;
+        }
+        finally {
+            this.logger.logFunctionExit('importUserData');
+        }
+    }
+    /**
+     * Subscribe to graph changes for auto-save
+     * @param callback - Callback to call when graph changes
+     */
+    onGraphChange(callback) {
+        // Add listener for all graph modifications
+        this.canvas.addEventListener('graphChanged', callback);
+    }
+    /**
+     * Emit graph changed event
+     * @private
+     */
+    emitGraphChanged() {
+        this.canvas.dispatchEvent(new CustomEvent('graphChanged'));
     }
 }

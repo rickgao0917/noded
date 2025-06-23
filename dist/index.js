@@ -4,31 +4,44 @@
  * Initializes the graph editor with DOM elements and sets up event delegation.
  * Follows comprehensive logging and error handling standards.
  */
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 import { GraphEditor } from './components/graph-editor.js';
 import { ChatInterface } from './components/chat-interface.js';
 import { Logger } from './utils/logger.js';
 import { ErrorFactory } from './types/errors.js';
+import { LoginComponent } from './components/login-component.js';
+import { SessionManager } from './services/session-manager.js';
+import { WorkspaceSidebar } from './components/workspace-sidebar.js';
 import './utils/debug-helper.js'; // Initializes window.debug
 /**
- * Initialize the graph editor application
+ * Initialize authentication and then the graph editor
  *
  * @throws {DOMError} When required DOM elements are not found
  * @throws {NodeEditorError} When initialization fails
  */
-function initializeEditor() {
+function initializeApp() {
+    const logger = new Logger('Application');
+    logger.logFunctionEntry('initializeApp');
+    const loginComponent = LoginComponent.getInstance();
+    // Initialize login component with success callback
+    loginComponent.initialize(async (session) => {
+        logger.info('Authentication successful', { userId: session.userId });
+        await initializeEditor(session);
+    });
+    logger.logFunctionExit('initializeApp');
+}
+/**
+ * Initialize the graph editor application after authentication
+ *
+ * @param session - The authenticated user session
+ * @throws {DOMError} When required DOM elements are not found
+ * @throws {NodeEditorError} When initialization fails
+ */
+async function initializeEditor(session) {
     const startTime = performance.now();
     const logger = new Logger('Application');
     const errorFactory = new ErrorFactory('app-init');
-    logger.logFunctionEntry('initializeEditor');
+    const sessionManager = SessionManager.getInstance();
+    logger.logFunctionEntry('initializeEditor', { userId: session.userId });
     try {
         const canvas = document.getElementById('canvas');
         const canvasContent = document.getElementById('canvasContent');
@@ -49,6 +62,44 @@ function initializeEditor() {
         }
         const editor = new GraphEditor(canvas, canvasContent, connections, false);
         logger.logInfo('GraphEditor instance created successfully', 'initializeEditor');
+        // Initialize workspace sidebar
+        const workspaceSidebar = WorkspaceSidebar.getInstance();
+        let currentWorkspaceId = null;
+        // Function to load a workspace
+        const loadWorkspace = async (workspaceId) => {
+            var _a;
+            try {
+                const response = await sessionManager.makeAuthenticatedRequest(`/api/workspaces/${workspaceId}`);
+                if (response.ok) {
+                    const workspace = await response.json();
+                    await editor.importUserData(workspace.graphData || [], workspace.canvasState);
+                    currentWorkspaceId = workspaceId;
+                    logger.info('Workspace loaded successfully', { workspaceId, nodeCount: ((_a = workspace.graphData) === null || _a === void 0 ? void 0 : _a.length) || 0 });
+                }
+            }
+            catch (error) {
+                logger.logError(error, 'loadWorkspace');
+            }
+        };
+        // Initialize sidebar with workspace change handler
+        workspaceSidebar.initialize(document.body, editor, loadWorkspace);
+        // Load default workspace
+        try {
+            const response = await sessionManager.makeAuthenticatedRequest('/api/workspaces/default/get-or-create');
+            if (response.ok) {
+                const workspace = await response.json();
+                currentWorkspaceId = workspace.id;
+                workspaceSidebar.setCurrentWorkspace(workspace.id);
+                if (workspace.graphData && workspace.graphData.length > 0) {
+                    await editor.importUserData(workspace.graphData, workspace.canvasState);
+                    logger.info('Default workspace loaded successfully', { nodeCount: workspace.graphData.length });
+                }
+            }
+        }
+        catch (error) {
+            logger.logError(error, 'loadDefaultWorkspace');
+            // Continue with empty editor
+        }
         // Create and initialize ChatInterface
         const editorContainer = document.querySelector('.editor-container');
         if (!editorContainer) {
@@ -57,6 +108,28 @@ function initializeEditor() {
         const chatInterface = new ChatInterface(editorContainer, editor);
         editor.setChatInterface(chatInterface);
         logger.logInfo('ChatInterface instance created and connected', 'initializeEditor');
+        // Enable auto-save
+        sessionManager.enableAutoSave(async () => {
+            try {
+                if (!currentWorkspaceId) {
+                    logger.warn('No workspace selected for auto-save');
+                    return;
+                }
+                const graphData = editor.exportUserData();
+                const canvasState = editor.getCanvasState();
+                await sessionManager.makeAuthenticatedRequest(`/api/workspaces/${currentWorkspaceId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        graphData,
+                        canvasState
+                    })
+                });
+                logger.debug('Auto-save completed for workspace', { workspaceId: currentWorkspaceId });
+            }
+            catch (error) {
+                logger.logError(error, 'autoSave');
+            }
+        });
         // Set up global button handlers with comprehensive error handling
         setupGlobalEventHandlers(editor, logger, errorFactory);
         const executionTime = performance.now() - startTime;
@@ -239,7 +312,7 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
             });
         }
         // Set up textarea change handlers for block content updates
-        document.addEventListener('change', (e) => __awaiter(this, void 0, void 0, function* () {
+        document.addEventListener('change', async (e) => {
             try {
                 const target = e.target;
                 const isTextarea = target.tagName === 'TEXTAREA';
@@ -254,7 +327,7 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
                     });
                     if (nodeId && blockIndex !== null) {
                         try {
-                            yield editor.updateBlockContent(nodeId, parseInt(blockIndex), target.value);
+                            await editor.updateBlockContent(nodeId, parseInt(blockIndex), target.value);
                             logger.logInfo('Block content updated via textarea', 'setupGlobalEventHandlers', {
                                 nodeId,
                                 blockIndex: parseInt(blockIndex)
@@ -270,9 +343,9 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
             catch (error) {
                 logger.logError(error, 'setupGlobalEventHandlers.textareaChange');
             }
-        }));
+        });
         // Set up button handlers for markdown block additions and LLM submission
-        document.addEventListener('click', (e) => __awaiter(this, void 0, void 0, function* () {
+        document.addEventListener('click', async (e) => {
             try {
                 const target = e.target;
                 const isButton = target.classList.contains('btn');
@@ -286,7 +359,7 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
                     logger.logUserInteraction('submit_to_llm_click', target.id || 'unnamed', { nodeId });
                     if (nodeId) {
                         try {
-                            yield editor.submitToLLM(nodeId);
+                            await editor.submitToLLM(nodeId);
                             logger.logInfo('LLM submission triggered successfully', 'setupGlobalEventHandlers', { nodeId });
                         }
                         catch (error) {
@@ -299,7 +372,7 @@ function setupGlobalEventHandlers(editor, logger, errorFactory) {
             catch (error) {
                 logger.logError(error, 'setupGlobalEventHandlers.buttonClick');
             }
-        }));
+        });
         const executionTime = performance.now() - startTime;
         logger.logPerformance('setupGlobalEventHandlers', 'event_handler_setup', executionTime);
         logger.logFunctionExit('setupGlobalEventHandlers', undefined, executionTime);
@@ -377,13 +450,13 @@ if (typeof window !== 'undefined') {
     });
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
-            logger.logInfo('DOM content loaded, initializing editor', 'bootstrap');
-            initializeEditor();
+            logger.logInfo('DOM content loaded, initializing app', 'bootstrap');
+            initializeApp();
         });
     }
     else {
-        logger.logInfo('DOM already loaded, initializing editor immediately', 'bootstrap');
-        initializeEditor();
+        logger.logInfo('DOM already loaded, initializing app immediately', 'bootstrap');
+        initializeApp();
     }
 }
 // Export main classes for external use
