@@ -1461,11 +1461,14 @@ export class GraphEditor {
             // Show loading indicator
             this.showLoadingIndicator(nodeId);
             try {
-                // Create response block immediately
-                const responseBlockId = this.createResponseBlock(nodeId, '');
                 // Submit to Gemini service with streaming
                 let responseContent = '';
+                let responseBlockId = null;
                 await geminiService.sendMessage(fullPrompt, (chunk) => {
+                    // Create response block on first chunk
+                    if (!responseBlockId) {
+                        responseBlockId = this.createResponseBlock(nodeId, '');
+                    }
                     responseContent += chunk;
                     this.updateStreamingResponse(nodeId, responseContent, responseBlockId);
                     // Call the external streaming callback if provided
@@ -1473,8 +1476,10 @@ export class GraphEditor {
                         onStreamingUpdate(responseContent);
                     }
                 });
-                // Response block completed - initialize preview mode
-                await this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
+                // Response block completed - initialize preview mode if we created one
+                if (responseBlockId) {
+                    await this.previewToggleManager.initializeResponseBlockPreview(responseBlockId);
+                }
                 this.logger.logInfo('LLM submission completed successfully', 'submitToLLM', {
                     nodeId,
                     responseLength: responseContent.length
@@ -1676,11 +1681,30 @@ export class GraphEditor {
                 const block = node.blocks[blockIndex];
                 const oldContent = block.content;
                 // Check if we should create a branch
-                if (this.branchingService.shouldCreateBranch(block.type, EditSource.NODE_BLOCK_DIRECT)) {
+                // Only branch if:
+                // 1. It's a prompt/response block AND
+                // 2. The block already has content (not first-time entry) AND
+                // 3. For prompts: the node has a response block (editing after getting response)
+                const isFirstTimeEntry = !oldContent || oldContent.trim() === '';
+                const hasResponse = node.blocks.some(b => b.type === 'response' && b.content.trim() !== '');
+                const shouldBranch = this.branchingService.shouldCreateBranch(block.type, EditSource.NODE_BLOCK_DIRECT)
+                    && !isFirstTimeEntry
+                    && (block.type === 'response' || (block.type === 'prompt' && hasResponse));
+                // Debug logging
+                console.log('[DEBUG] Branch decision:', {
+                    blockType: block.type,
+                    isFirstTimeEntry,
+                    hasResponse,
+                    oldContent: (oldContent === null || oldContent === void 0 ? void 0 : oldContent.substring(0, 50)) + '...',
+                    shouldBranch
+                });
+                if (shouldBranch) {
                     this.logger.logInfo('Creating branch for block edit', 'updateBlockContent', {
                         nodeId,
                         blockId: block.id,
-                        blockType: block.type
+                        blockType: block.type,
+                        isFirstTimeEntry,
+                        hasResponse
                     });
                     try {
                         // Create a branch instead of updating in place

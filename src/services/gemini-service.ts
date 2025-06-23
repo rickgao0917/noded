@@ -67,11 +67,11 @@ export class GeminiService {
       }
 
       // Check API key at call time
-      if (!this.apiKey) {
+      if (!this.apiKey || this.apiKey === 'YOUR_API_KEY_HERE') {
         throw this.errorFactory.createNodeEditorError(
           'Gemini API key not configured',
           'API_KEY_MISSING',
-          'Please create config.js from config.example.js and add your Gemini API key.',
+          'Please add your Gemini API key to config/config.js. Get your key from https://aistudio.google.com/apikey',
           'sendMessage'
         );
       }
@@ -291,13 +291,25 @@ export class GeminiService {
         throw error;
       }
 
+      // Check if it's an API key issue
+      const errorMessage = String(error);
+      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('API_KEY_INVALID')) {
+        throw this.errorFactory.createNodeEditorError(
+          'Invalid Gemini API key',
+          'API_KEY_INVALID',
+          'Your Gemini API key is invalid. Please check config/config.js and ensure you have a valid key from https://aistudio.google.com/apikey',
+          'sendMessage',
+          { error: errorMessage }
+        );
+      }
+      
       // For other errors (network, etc.), wrap them
       throw this.errorFactory.createNodeEditorError(
         'Failed to communicate with Gemini API',
         'GEMINI_CONNECTION_ERROR',
         'Unable to get AI response. Please check your connection and try again.',
         'sendMessage',
-        { error: String(error) }
+        { error: errorMessage }
       );
     }
   }

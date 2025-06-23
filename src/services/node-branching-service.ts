@@ -69,6 +69,7 @@ export class NodeBranchingService {
       editSource 
     });
     
+    
     try {
       // Validate inputs
       const originalNode = this.nodes.get(nodeId);
