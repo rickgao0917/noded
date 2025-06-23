@@ -458,7 +458,7 @@ export class DatabaseService {
 
     try {
       const rows = await this.allQuery<any>(
-        'SELECT id, name, updated_at, metadata FROM workspaces WHERE user_id = ? ORDER BY updated_at DESC',
+        'SELECT id, name, updated_at, metadata FROM workspaces WHERE user_id = ? AND name NOT LIKE "_deleted_%" ORDER BY updated_at DESC',
         [userId]
       );
 

@@ -105,6 +105,7 @@ export class WorkspaceSidebar {
           padding: 0.75rem;
           margin-bottom: 0.5rem;
           background: white;
+          color: #333;
           border: 1px solid #ddd;
           border-radius: 4px;
           cursor: pointer;
@@ -120,14 +121,19 @@ export class WorkspaceSidebar {
         }
 
         .workspace-item.active {
-          background: #007bff;
-          color: white;
+          background: #e7f3ff;
+          color: #333;
           border-color: #007bff;
         }
 
         .workspace-item.active .workspace-actions button {
-          color: white;
-          border-color: white;
+          color: #333;
+          border-color: #007bff;
+          background: white;
+        }
+        
+        .workspace-item.active .workspace-actions button:hover {
+          background: #f0f0f0;
         }
 
         .workspace-info {
@@ -167,6 +173,7 @@ export class WorkspaceSidebar {
           padding: 0.25rem;
           border: 1px solid #ddd;
           background: white;
+          color: #333;
           border-radius: 3px;
           cursor: pointer;
           font-size: 0.75rem;

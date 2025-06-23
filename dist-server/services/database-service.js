@@ -384,7 +384,7 @@ class DatabaseService {
         this.logger.logFunctionEntry('listWorkspaces', { userId });
         this.ensureConnected();
         try {
-            const rows = await this.allQuery('SELECT id, name, updated_at, metadata FROM workspaces WHERE user_id = ? ORDER BY updated_at DESC', [userId]);
+            const rows = await this.allQuery('SELECT id, name, updated_at, metadata FROM workspaces WHERE user_id = ? AND name NOT LIKE "_deleted_%" ORDER BY updated_at DESC', [userId]);
             return rows.map(row => ({
                 id: row.id,
                 name: row.name,
