@@ -75,8 +75,14 @@ describe('Branching Workflow Integration', () => {
     graphEditor.addRootNode();
     const rootId = Array.from(graphEditor['nodes'].keys())[0]!;
     
-    // The root node should already have a prompt block by default
-    // Let's add a response block
+    // Give the prompt block initial content so edits will trigger branching
+    const rootNode = graphEditor.getNode(rootId);
+    const promptBlock = rootNode?.blocks.find(b => b.type === 'prompt');
+    if (promptBlock) {
+      promptBlock.content = 'Initial prompt content';
+    }
+    
+    // Add a response block
     graphEditor.addBlock(rootId, 'response', 'Initial response content');
     
     // Add a markdown block
@@ -239,6 +245,7 @@ describe('Branching Workflow Integration', () => {
       
       // Create initial conversation
       const childNode = graphEditor.addChild(rootId!);
+      const childId = childNode?.id;
       if (childNode) {
         childNode.blocks = [
           { id: 'child-prompt' as BlockId, type: 'prompt', content: 'Follow-up question', position: 0 },

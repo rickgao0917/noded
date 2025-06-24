@@ -52,7 +52,7 @@ describe('SessionManager', () => {
 
       // Verify API call
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/workspaces/workspace-123',
+        '/api/shares/workspace-123/workspace',
         expect.objectContaining({
           headers: expect.objectContaining({
             'Authorization': 'Bearer test-token'

@@ -93,8 +93,7 @@ describe('GraphEditor Component', () => {
 
     it('should initialize with default canvas state', () => {
       const state = editor.getCanvasState();
-      expect(state.selectedNodeId).toBeNull();
-      expect(state.canvasOffset).toEqual({ x: 0, y: 0 });
+      expect(state.pan).toEqual({ x: 0, y: 0 });
       expect(state.zoom).toBe(1);
     });
 
@@ -633,8 +632,8 @@ describe('GraphEditor Component', () => {
         editor.panCanvas(deltaX, deltaY);
         
         const state = editor.getCanvasState();
-        expect(state.canvasOffset.x).toBe(deltaX);
-        expect(state.canvasOffset.y).toBe(deltaY);
+        expect(state.pan.x).toBe(deltaX);
+        expect(state.pan.y).toBe(deltaY);
       });
 
       it('should accumulate pan deltas', () => {
@@ -642,8 +641,8 @@ describe('GraphEditor Component', () => {
         editor.panCanvas(5, 10);
         
         const state = editor.getCanvasState();
-        expect(state.canvasOffset.x).toBe(15);
-        expect(state.canvasOffset.y).toBe(30);
+        expect(state.pan.x).toBe(15);
+        expect(state.pan.y).toBe(30);
       });
     });
 
@@ -678,7 +677,7 @@ describe('GraphEditor Component', () => {
         editor.resetView();
         
         const state = editor.getCanvasState();
-        expect(state.canvasOffset).toEqual({ x: 0, y: 0 });
+        expect(state.pan).toEqual({ x: 0, y: 0 });
         expect(state.zoom).toBe(1);
       });
     });

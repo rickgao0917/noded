@@ -1,5 +1,6 @@
-import { ShareService } from '../../src/services/share-service';
+import { ShareService } from '../../server-src/services/share-service';
 import { SessionManager } from '../../src/services/session-manager';
+import type { UserId, SessionToken } from '../../src/types/auth.types';
 
 // Mock fetch globally
 global.fetch = jest.fn();
@@ -18,10 +19,10 @@ describe('Share Concurrent Access Performance Tests', () => {
     
     // Mock authenticated session
     sessionManager.setSession({
-      userId: 'test-user-id',
+      userId: 'test-user-id' as UserId,
       username: 'testuser',
-      sessionToken: 'test-token',
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      sessionToken: 'test-token' as SessionToken,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
     });
   });
   
@@ -52,7 +53,7 @@ describe('Share Concurrent Access Performance Tests', () => {
       const duration = endTime - startTime;
       
       // All should succeed
-      expect(results.every(r => r.success)).toBe(true);
+      expect(results.every((r: any) => r.success)).toBe(true);
       
       // Should complete within reasonable time (< 1 second for 10 requests)
       expect(duration).toBeLessThan(1000);
@@ -89,11 +90,11 @@ describe('Share Concurrent Access Performance Tests', () => {
       const results = await Promise.all(promises);
       
       // Only one should succeed
-      const successCount = results.filter(r => r.success).length;
+      const successCount = results.filter((r: any) => r.success).length;
       expect(successCount).toBe(1);
       
       // Others should fail with appropriate error
-      const failureCount = results.filter(r => !r.success && r.error?.includes('Already shared')).length;
+      const failureCount = results.filter((r: any) => !r.success && r.error?.includes('Already shared')).length;
       expect(failureCount).toBe(numAttempts - 1);
     });
   });
@@ -278,7 +279,7 @@ describe('Share Concurrent Access Performance Tests', () => {
       const endTime = performance.now();
       const duration = endTime - startTime;
       
-      expect(results.every(r => r.success)).toBe(true);
+      expect(results.every((r: any) => r.success)).toBe(true);
       expect(duration).toBeLessThan(2000); // < 2 seconds for 30 revocations
       
       console.log(`Bulk revocation: ${numShares} shares in ${duration.toFixed(2)}ms`);

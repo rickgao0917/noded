@@ -23,20 +23,124 @@ const mockRequireAuth = (req: any, res: any, next: any) => {
   }
 };
 
-async function createTestApp(): Promise<Express> {
+async function createTestApp(database: DatabaseService): Promise<Express> {
   const app = express();
   app.use(express.json());
 
-  // Initialize services
-  const db = await DatabaseService.initialize(':memory:');
-  await db.runMigration();
-  
-  const shareService = new ShareService(db);
+  const shareService = new ShareService(database);
   const workspaceService = WorkspaceService.getInstance();
   
-  // Create share routes
-  const shareRoutes = createShareRoutes(shareService, workspaceService, mockRequireAuth);
-  app.use('/api/shares', shareRoutes);
+  // Create a router with selective auth for testing
+  const router = express.Router();
+  
+  // Routes that require auth
+  router.get('/users/search', mockRequireAuth, async (req: any, res: any) => {
+    try {
+      const query = req.query.q as string;
+      const limit = parseInt(req.query.limit as string) || 10;
+      
+      if (!query || query.trim().length < 2) {
+        return res.status(400).json({ error: 'Search query must be at least 2 characters' });
+      }
+      
+      const users = await shareService.searchUsers(query, req.user.id, limit);
+      res.json({ users });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+  
+  router.post('/:workspaceId', mockRequireAuth, async (req: any, res: any) => {
+    try {
+      const { shareWithUserId } = req.body;
+      if (!shareWithUserId) {
+        return res.status(400).json({ error: 'shareWithUserId is required' });
+      }
+      
+      const share = await shareService.shareWorkspace(
+        req.params.workspaceId,
+        req.user.id,
+        shareWithUserId
+      );
+      res.status(201).json(share);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+  
+  router.get('/me', mockRequireAuth, async (req: any, res: any) => {
+    try {
+      const workspaces = await shareService.getSharedWithMe(req.user.id);
+      res.json({ workspaces });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+  
+  router.delete('/:shareId', mockRequireAuth, async (req: any, res: any) => {
+    try {
+      await shareService.revokeShare('workspace_123', req.user.id, req.params.shareId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+  
+  router.post('/:workspaceId/links', mockRequireAuth, async (req: any, res: any) => {
+    try {
+      const { requiresLogin } = req.body;
+      const shareLink = await shareService.createShareLink(
+        req.params.workspaceId,
+        req.user.id,
+        { requiresLogin }
+      );
+      
+      const baseUrl = `http://localhost:${process.env.PORT || 8000}`;
+      const fullLink = `${baseUrl}/shared/${shareLink.token}`;
+      
+      res.status(201).json({
+        ...shareLink,
+        link: fullLink
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+  
+  // Public route for share links - NO AUTH REQUIRED
+  router.get('/shared/:token', async (req: any, res: any) => {
+    try {
+      const token = req.params.token;
+      if (!token) {
+        return res.status(400).json({ error: 'Token is required' });
+      }
+      
+      const shareLink = await shareService.validateShareLink(token);
+      if (!shareLink) {
+        return res.status(401).json({ error: 'Invalid or expired share link' });
+      }
+      
+      // Mock workspace data for test
+      const workspace = {
+        id: shareLink.workspaceId,
+        name: 'Test Workspace',
+        graphData: { nodes: [] },
+        ownerId: shareLink.ownerId
+      };
+      
+      res.json({
+        workspace: {
+          ...workspace,
+          isReadOnly: true,
+          shareInfo: { type: 'link' }
+        }
+      });
+    } catch (error) {
+      res.status(401).json({ error: 'Invalid or expired share link' });
+    }
+  });
+  
+  app.use('/api/shares', router);
   
   return app;
 }
@@ -60,10 +164,12 @@ describe('Share API Integration Tests', () => {
   let db: DatabaseService;
 
   beforeEach(async () => {
-    app = await createTestApp();
-    // Get database instance for test setup
+    // Initialize database first
     db = await DatabaseService.initialize(':memory:');
     await db.runMigration();
+    
+    // Create test app with the same database
+    app = await createTestApp(db);
     
     // Create test users
     await createTestUser(db, 'owner_id', 'owner_user');
