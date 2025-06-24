@@ -1,0 +1,616 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<implementation-plan>
+  <title>View-Only Workspace Sharing Implementation Plan</title>
+  <version>1.0</version>
+  <created>2025-06-23</created>
+  
+  <overview>
+    <summary>
+      This plan outlines the implementation of a view-only workspace sharing feature that allows users 
+      to share their workspaces with other registered users in read-only mode. The system will include 
+      user search functionality, permission management, and secure access controls.
+    </summary>
+    <key-features>
+      <feature>User search functionality to find registered users by username</feature>
+      <feature>Grant/revoke view-only access to specific workspaces</feature>
+      <feature>Shared workspace list in the UI</feature>
+      <feature>Read-only mode enforcement for shared workspaces</feature>
+      <feature>Share link generation with optional expiration</feature>
+      <feature>Activity tracking for shared workspace access</feature>
+    </key-features>
+  </overview>
+
+  <database-schema>
+    <new-tables>
+      <table name="workspace_shares">
+        <description>Tracks workspace sharing permissions between users</description>
+        <columns>
+          <column name="id" type="TEXT PRIMARY KEY">
+            <format>share_timestamp_random</format>
+          </column>
+          <column name="workspace_id" type="TEXT NOT NULL">
+            <foreign-key table="workspaces" column="id"/>
+          </column>
+          <column name="owner_id" type="TEXT NOT NULL">
+            <foreign-key table="users" column="id"/>
+            <description>User who owns the workspace</description>
+          </column>
+          <column name="shared_with_user_id" type="TEXT NOT NULL">
+            <foreign-key table="users" column="id"/>
+            <description>User who has been granted access</description>
+          </column>
+          <column name="permission_level" type="TEXT NOT NULL DEFAULT 'view'">
+            <allowed-values>view</allowed-values>
+            <description>Permission level (currently only 'view', extensible for future)</description>
+          </column>
+          <column name="created_at" type="TEXT NOT NULL">
+            <description>When the share was created</description>
+          </column>
+          <column name="expires_at" type="TEXT">
+            <description>Optional expiration timestamp</description>
+          </column>
+          <column name="last_accessed" type="TEXT">
+            <description>Last time the shared user accessed this workspace</description>
+          </column>
+          <column name="is_active" type="INTEGER DEFAULT 1">
+            <description>Whether the share is currently active</description>
+          </column>
+        </columns>
+        <indexes>
+          <index columns="workspace_id, shared_with_user_id" unique="true"/>
+          <index columns="shared_with_user_id"/>
+          <index columns="owner_id"/>
+        </indexes>
+      </table>
+
+      <table name="share_links">
+        <description>Public share links with optional authentication</description>
+        <columns>
+          <column name="id" type="TEXT PRIMARY KEY">
+            <format>link_timestamp_random</format>
+          </column>
+          <column name="workspace_id" type="TEXT NOT NULL">
+            <foreign-key table="workspaces" column="id"/>
+          </column>
+          <column name="owner_id" type="TEXT NOT NULL">
+            <foreign-key table="users" column="id"/>
+          </column>
+          <column name="share_token" type="TEXT UNIQUE NOT NULL">
+            <description>Unique token for the share link</description>
+          </column>
+          <column name="requires_login" type="INTEGER DEFAULT 1">
+            <description>Whether user must be logged in to view</description>
+          </column>
+          <column name="created_at" type="TEXT NOT NULL"/>
+          <column name="expires_at" type="TEXT"/>
+          <column name="access_count" type="INTEGER DEFAULT 0">
+            <description>Number of times the link has been accessed</description>
+          </column>
+          <column name="is_active" type="INTEGER DEFAULT 1"/>
+        </columns>
+        <indexes>
+          <index columns="share_token" unique="true"/>
+          <index columns="workspace_id"/>
+        </indexes>
+      </table>
+
+      <table name="share_activity">
+        <description>Audit log for workspace share access</description>
+        <columns>
+          <column name="id" type="TEXT PRIMARY KEY">
+            <format>activity_timestamp_random</format>
+          </column>
+          <column name="workspace_id" type="TEXT NOT NULL"/>
+          <column name="user_id" type="TEXT">
+            <description>User who accessed (null for anonymous link access)</description>
+          </column>
+          <column name="share_type" type="TEXT NOT NULL">
+            <allowed-values>direct_share, link_share</allowed-values>
+          </column>
+          <column name="action" type="TEXT NOT NULL">
+            <allowed-values>viewed, exported, link_created, share_granted, share_revoked</allowed-values>
+          </column>
+          <column name="ip_address" type="TEXT"/>
+          <column name="user_agent" type="TEXT"/>
+          <column name="created_at" type="TEXT NOT NULL"/>
+        </columns>
+        <indexes>
+          <index columns="workspace_id, created_at"/>
+          <index columns="user_id"/>
+        </indexes>
+      </table>
+    </new-tables>
+
+    <modifications>
+      <table name="workspaces">
+        <add-column name="is_public" type="INTEGER DEFAULT 0">
+          <description>Whether workspace allows link sharing</description>
+        </add-column>
+        <add-column name="share_settings" type="TEXT">
+          <description>JSON settings for sharing preferences</description>
+        </add-column>
+      </table>
+    </modifications>
+  </database-schema>
+
+  <backend-services>
+    <service name="ShareService" path="server-src/services/share-service.ts">
+      <description>Core service for managing workspace shares</description>
+      <methods>
+        <method name="searchUsers">
+          <parameters>
+            <param name="query" type="string">Username search query</param>
+            <param name="excludeUserId" type="string">Current user to exclude</param>
+            <param name="limit" type="number" default="10"/>
+          </parameters>
+          <returns>Array of {id, username} objects</returns>
+          <description>Search for users by username with fuzzy matching</description>
+        </method>
+
+        <method name="shareWorkspace">
+          <parameters>
+            <param name="workspaceId" type="string"/>
+            <param name="ownerId" type="string"/>
+            <param name="shareWithUserId" type="string"/>
+            <param name="expiresAt" type="string" optional="true"/>
+          </parameters>
+          <returns>Share object</returns>
+          <validation>
+            <check>Verify owner owns the workspace</check>
+            <check>Prevent sharing with self</check>
+            <check>Check if share already exists</check>
+          </validation>
+        </method>
+
+        <method name="revokeShare">
+          <parameters>
+            <param name="workspaceId" type="string"/>
+            <param name="ownerId" type="string"/>
+            <param name="sharedWithUserId" type="string"/>
+          </parameters>
+          <returns>Boolean success</returns>
+        </method>
+
+        <method name="getSharedWithMe">
+          <parameters>
+            <param name="userId" type="string"/>
+          </parameters>
+          <returns>Array of shared workspaces with owner info</returns>
+        </method>
+
+        <method name="getMyShares">
+          <parameters>
+            <param name="userId" type="string"/>
+            <param name="workspaceId" type="string" optional="true"/>
+          </parameters>
+          <returns>Array of shares I've created</returns>
+        </method>
+
+        <method name="createShareLink">
+          <parameters>
+            <param name="workspaceId" type="string"/>
+            <param name="ownerId" type="string"/>
+            <param name="options" type="object">
+              <field name="requiresLogin" type="boolean" default="true"/>
+              <field name="expiresIn" type="number" optional="true">Hours until expiration</field>
+            </param>
+          </parameters>
+          <returns>Share link object with URL</returns>
+        </method>
+
+        <method name="validateShareAccess">
+          <parameters>
+            <param name="workspaceId" type="string"/>
+            <param name="userId" type="string"/>
+          </parameters>
+          <returns>Access level ('owner', 'view', null)</returns>
+        </method>
+
+        <method name="logShareActivity">
+          <parameters>
+            <param name="workspaceId" type="string"/>
+            <param name="userId" type="string" optional="true"/>
+            <param name="action" type="string"/>
+            <param name="metadata" type="object" optional="true"/>
+          </parameters>
+        </method>
+      </methods>
+    </service>
+
+    <service name="ShareAuthMiddleware" path="server-src/middleware/share-auth.ts">
+      <description>Middleware for handling shared workspace authentication</description>
+      <methods>
+        <method name="requireShareAccess">
+          <description>Verify user has at least view access to workspace</description>
+          <checks>
+            <check>Is owner</check>
+            <check>Has active share</check>
+            <check>Valid share link token</check>
+          </checks>
+        </method>
+      </methods>
+    </service>
+  </backend-services>
+
+  <api-endpoints>
+    <endpoint-group prefix="/api/shares">
+      <endpoint method="GET" path="/users/search">
+        <description>Search for users to share with</description>
+        <query-params>
+          <param name="q" required="true">Search query</param>
+          <param name="limit" default="10">Max results</param>
+        </query-params>
+        <response>
+          <format>
+            {
+              "users": [
+                {"id": "user_123", "username": "john_doe"}
+              ]
+            }
+          </format>
+        </response>
+      </endpoint>
+
+      <endpoint method="POST" path="/workspaces/:workspaceId/shares">
+        <description>Share workspace with another user</description>
+        <body>
+          <field name="shareWithUserId" type="string" required="true"/>
+          <field name="expiresAt" type="string" optional="true"/>
+        </body>
+        <validation>
+          <check>User owns workspace</check>
+          <check>Target user exists</check>
+          <check>Not already shared</check>
+        </validation>
+      </endpoint>
+
+      <endpoint method="DELETE" path="/workspaces/:workspaceId/shares/:userId">
+        <description>Revoke share access</description>
+        <validation>
+          <check>User owns workspace</check>
+        </validation>
+      </endpoint>
+
+      <endpoint method="GET" path="/workspaces/:workspaceId/shares">
+        <description>List all shares for a workspace</description>
+        <response>
+          <format>
+            {
+              "shares": [
+                {
+                  "id": "share_123",
+                  "sharedWith": {"id": "user_456", "username": "jane_doe"},
+                  "createdAt": "2025-06-23T10:00:00Z",
+                  "expiresAt": null,
+                  "lastAccessed": "2025-06-23T11:00:00Z"
+                }
+              ]
+            }
+          </format>
+        </response>
+      </endpoint>
+
+      <endpoint method="GET" path="/shared-with-me">
+        <description>List workspaces shared with current user</description>
+        <response>
+          <format>
+            {
+              "workspaces": [
+                {
+                  "id": "workspace_789",
+                  "name": "Project Planning",
+                  "owner": {"id": "user_123", "username": "john_doe"},
+                  "sharedAt": "2025-06-23T10:00:00Z",
+                  "lastAccessed": "2025-06-23T11:00:00Z"
+                }
+              ]
+            }
+          </format>
+        </response>
+      </endpoint>
+
+      <endpoint method="POST" path="/workspaces/:workspaceId/share-link">
+        <description>Generate shareable link</description>
+        <body>
+          <field name="requiresLogin" type="boolean" default="true"/>
+          <field name="expiresIn" type="number" optional="true"/>
+        </body>
+        <response>
+          <format>
+            {
+              "link": "https://app.noded.com/shared/abc123def456",
+              "token": "abc123def456",
+              "expiresAt": "2025-06-30T10:00:00Z"
+            }
+          </format>
+        </response>
+      </endpoint>
+
+      <endpoint method="GET" path="/shared/:token">
+        <description>Access workspace via share link</description>
+        <validation>
+          <check>Valid token</check>
+          <check>Not expired</check>
+          <check>User logged in (if required)</check>
+        </validation>
+      </endpoint>
+    </endpoint-group>
+  </api-endpoints>
+
+  <frontend-components>
+    <component name="ShareDialog" path="src/components/share-dialog.ts">
+      <description>Modal dialog for managing workspace shares</description>
+      <features>
+        <feature>User search with debounced input</feature>
+        <feature>List of current shares with revoke buttons</feature>
+        <feature>Share link generation with copy button</feature>
+        <feature>Expiration date picker</feature>
+        <feature>Share activity log viewer</feature>
+      </features>
+      <ui-elements>
+        <tabs>
+          <tab name="Direct Shares">
+            <search-input placeholder="Search users by username..."/>
+            <user-list>
+              <user-item>
+                <username/>
+                <share-button/>
+              </user-item>
+            </user-list>
+            <current-shares>
+              <share-item>
+                <username/>
+                <shared-date/>
+                <last-accessed/>
+                <revoke-button/>
+              </share-item>
+            </current-shares>
+          </tab>
+          <tab name="Link Sharing">
+            <toggle label="Enable link sharing"/>
+            <options>
+              <checkbox label="Require login to view"/>
+              <expiration-select>
+                <option>Never</option>
+                <option>1 hour</option>
+                <option>1 day</option>
+                <option>1 week</option>
+                <option>1 month</option>
+              </expiration-select>
+            </options>
+            <generate-link-button/>
+            <active-links>
+              <link-item>
+                <link-url/>
+                <copy-button/>
+                <access-count/>
+                <revoke-button/>
+              </link-item>
+            </active-links>
+          </tab>
+          <tab name="Activity">
+            <activity-log>
+              <log-entry>
+                <user/>
+                <action/>
+                <timestamp/>
+              </log-entry>
+            </activity-log>
+          </tab>
+        </tabs>
+      </ui-elements>
+    </component>
+
+    <component name="SharedWorkspaceIndicator" path="src/components/shared-workspace-indicator.ts">
+      <description>Visual indicator for shared/read-only workspaces</description>
+      <features>
+        <feature>Badge showing "Shared by [username]"</feature>
+        <feature>Read-only mode banner</feature>
+        <feature>Disabled editing controls</feature>
+      </features>
+    </component>
+
+    <component name="SharedWorkspacesList" path="src/components/shared-workspaces-list.ts">
+      <description>Section in sidebar showing workspaces shared with user</description>
+      <features>
+        <feature>Separate section below user's own workspaces</feature>
+        <feature>Owner username display</feature>
+        <feature>Last accessed time</feature>
+        <feature>Click to open in read-only mode</feature>
+      </features>
+    </component>
+
+    <modifications>
+      <component name="WorkspaceSidebar" path="src/components/workspace-sidebar.ts">
+        <add-feature>Share button on each workspace item</add-feature>
+        <add-feature>Shared workspaces section</add-feature>
+        <add-feature>Share indicator icons</add-feature>
+      </component>
+
+      <component name="GraphEditor" path="src/components/graph-editor.ts">
+        <add-feature>Read-only mode support</add-feature>
+        <add-feature>Disable editing operations when viewing shared workspace</add-feature>
+        <add-feature>Show owner attribution</add-feature>
+      </component>
+    </modifications>
+  </frontend-components>
+
+  <security-considerations>
+    <consideration priority="high">
+      <title>Access Control Validation</title>
+      <description>
+        Every API endpoint must validate workspace access permissions. 
+        Use middleware to check if user is owner or has active share.
+      </description>
+      <implementation>
+        <step>Create requireShareAccess middleware</step>
+        <step>Check owner_id matches user_id OR active share exists</step>
+        <step>Validate share hasn't expired</step>
+        <step>Log all access attempts</step>
+      </implementation>
+    </consideration>
+
+    <consideration priority="high">
+      <title>Share Token Security</title>
+      <description>
+        Share tokens must be cryptographically secure and unguessable.
+      </description>
+      <implementation>
+        <step>Use crypto.randomBytes(32) for token generation</step>
+        <step>Store hashed version in database</step>
+        <step>Implement rate limiting for token validation</step>
+      </implementation>
+    </consideration>
+
+    <consideration priority="medium">
+      <title>Data Isolation</title>
+      <description>
+        Shared workspaces must be strictly read-only with no ability to modify.
+      </description>
+      <implementation>
+        <step>Frontend: Disable all editing controls</step>
+        <step>Backend: Reject any modification requests for shared workspaces</step>
+        <step>Separate API endpoints for shared workspace access</step>
+      </implementation>
+    </consideration>
+
+    <consideration priority="medium">
+      <title>Privacy Controls</title>
+      <description>
+        Users should have full control over their sharing preferences.
+      </description>
+      <implementation>
+        <step>Allow users to disable all sharing</step>
+        <step>Provide activity logs for transparency</step>
+        <step>Easy revocation of all shares</step>
+      </implementation>
+    </consideration>
+  </security-considerations>
+
+  <implementation-phases>
+    <phase number="1" name="Database and Backend Foundation">
+      <duration>2-3 days</duration>
+      <tasks>
+        <task>Create database migration for new tables</task>
+        <task>Implement ShareService with user search</task>
+        <task>Create share management methods</task>
+        <task>Add share authentication middleware</task>
+        <task>Write comprehensive tests for ShareService</task>
+      </tasks>
+    </phase>
+
+    <phase number="2" name="API Endpoints">
+      <duration>2 days</duration>
+      <tasks>
+        <task>Implement user search endpoint</task>
+        <task>Create share CRUD endpoints</task>
+        <task>Add shared workspace list endpoints</task>
+        <task>Implement share link generation</task>
+        <task>Add API tests and documentation</task>
+      </tasks>
+    </phase>
+
+    <phase number="3" name="Frontend Share Management">
+      <duration>3-4 days</duration>
+      <tasks>
+        <task>Create ShareDialog component</task>
+        <task>Implement user search UI with debouncing</task>
+        <task>Add share list management</task>
+        <task>Create share link generation UI</task>
+        <task>Add activity log viewer</task>
+      </tasks>
+    </phase>
+
+    <phase number="4" name="Read-Only Mode">
+      <duration>2-3 days</duration>
+      <tasks>
+        <task>Modify GraphEditor for read-only support</task>
+        <task>Disable all editing controls conditionally</task>
+        <task>Add shared workspace indicators</task>
+        <task>Update WorkspaceSidebar with shared section</task>
+        <task>Test all interactions in read-only mode</task>
+      </tasks>
+    </phase>
+
+    <phase number="5" name="Testing and Polish">
+      <duration>2 days</duration>
+      <tasks>
+        <task>End-to-end testing of sharing flow</task>
+        <task>Security testing and penetration attempts</task>
+        <task>Performance testing with many shares</task>
+        <task>UI/UX polish and error handling</task>
+        <task>Documentation updates</task>
+      </tasks>
+    </phase>
+  </implementation-phases>
+
+  <testing-strategy>
+    <unit-tests>
+      <test-suite name="ShareService">
+        <test>User search with various queries</test>
+        <test>Share creation and validation</test>
+        <test>Share revocation</test>
+        <test>Access validation for different scenarios</test>
+        <test>Share link generation and validation</test>
+        <test>Expiration handling</test>
+      </test-suite>
+    </unit-tests>
+
+    <integration-tests>
+      <test>Full sharing workflow from UI to database</test>
+      <test>Concurrent access to shared workspaces</test>
+      <test>Share link access with and without login</test>
+      <test>Permission escalation attempts</test>
+    </integration-tests>
+
+    <e2e-tests>
+      <test>Share workspace with another user</test>
+      <test>Access shared workspace as recipient</test>
+      <test>Revoke access and verify</test>
+      <test>Share link generation and access</test>
+      <test>Read-only mode enforcement</test>
+    </e2e-tests>
+  </testing-strategy>
+
+  <future-enhancements>
+    <enhancement>
+      <title>Collaborative Editing</title>
+      <description>Extend sharing to allow real-time collaborative editing with WebSockets</description>
+    </enhancement>
+    <enhancement>
+      <title>Permission Levels</title>
+      <description>Add 'edit' and 'admin' permission levels beyond view-only</description>
+    </enhancement>
+    <enhancement>
+      <title>Share Templates</title>
+      <description>Allow sharing of workspace templates that users can copy</description>
+    </enhancement>
+    <enhancement>
+      <title>Public Gallery</title>
+      <description>Public workspace gallery for sharing with the community</description>
+    </enhancement>
+    <enhancement>
+      <title>Embedding</title>
+      <description>Allow embedding shared workspaces in other websites via iframe</description>
+    </enhancement>
+  </future-enhancements>
+
+  <documentation-updates>
+    <update file="CLAUDE.md">
+      <section>Workspace Sharing</section>
+      <content>
+        - How to share workspaces with other users
+        - Understanding permission levels
+        - Managing shared workspaces
+        - Security best practices
+      </content>
+    </update>
+    <update file="docs/SHARING.md" create="true">
+      <content>Complete guide to workspace sharing feature</content>
+    </update>
+    <update file="README.md">
+      <section>Features</section>
+      <content>Add workspace sharing to feature list</content>
+    </update>
+  </documentation-updates>
+</implementation-plan>

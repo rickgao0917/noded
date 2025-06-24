@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BaseError = void 0;
+exports.ValidationError = exports.ShareError = exports.BaseError = void 0;
 /**
  * Simplified base error class for server-side use
  */
@@ -17,3 +17,21 @@ class BaseError extends Error {
     }
 }
 exports.BaseError = BaseError;
+/**
+ * Error for sharing-related operations
+ */
+class ShareError extends BaseError {
+    constructor(message, cause) {
+        super('SHARE_ERROR', message, cause);
+    }
+}
+exports.ShareError = ShareError;
+/**
+ * Error for validation failures
+ */
+class ValidationError extends BaseError {
+    constructor(message, cause) {
+        super('VALIDATION_ERROR', message, cause);
+    }
+}
+exports.ValidationError = ValidationError;

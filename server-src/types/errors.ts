@@ -15,3 +15,21 @@ export class BaseError extends Error {
     }
   }
 }
+
+/**
+ * Error for sharing-related operations
+ */
+export class ShareError extends BaseError {
+  constructor(message: string, cause?: Error) {
+    super('SHARE_ERROR', message, cause);
+  }
+}
+
+/**
+ * Error for validation failures
+ */
+export class ValidationError extends BaseError {
+  constructor(message: string, cause?: Error) {
+    super('VALIDATION_ERROR', message, cause);
+  }
+}

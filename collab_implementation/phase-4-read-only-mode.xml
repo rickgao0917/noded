@@ -1,0 +1,1023 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phase-implementation>
+  <metadata>
+    <phase-number>4</phase-number>
+    <phase-name>Read-Only Mode</phase-name>
+    <estimated-duration>2-3 days</estimated-duration>
+    <dependencies>
+      <dependency>Phase 3 - Frontend share management UI</dependency>
+      <dependency>Existing GraphEditor component</dependency>
+      <dependency>Share authentication middleware</dependency>
+    </dependencies>
+  </metadata>
+
+  <objectives>
+    <objective priority="1">Modify GraphEditor to support read-only mode</objective>
+    <objective priority="2">Disable all editing controls conditionally</objective>
+    <objective priority="3">Add visual indicators for shared workspaces</objective>
+    <objective priority="4">Update WorkspaceSidebar to load shared workspaces</objective>
+    <objective priority="5">Test all interactions in read-only mode</objective>
+  </objectives>
+
+  <graph-editor-modifications>
+    <file path="src/components/graph-editor.ts" modifications="true">
+      <add-properties><![CDATA[
+private isReadOnly: boolean = false;
+private shareInfo: { type: 'direct' | 'link'; owner: string } | null = null;
+      ]]></add-properties>
+
+      <add-method name="setReadOnlyMode">
+        <description>Enable or disable read-only mode</description>
+        <implementation><![CDATA[
+public setReadOnlyMode(
+  readOnly: boolean, 
+  shareInfo?: { type: 'direct' | 'link'; owner: string }
+): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('setReadOnlyMode', { readOnly, shareInfo }, correlationId);
+  
+  this.isReadOnly = readOnly;
+  this.shareInfo = shareInfo || null;
+  
+  if (readOnly) {
+    // Add read-only class to canvas
+    this.canvasElement?.classList.add('read-only');
+    
+    // Show read-only indicator
+    this.showReadOnlyIndicator();
+    
+    // Disable all interactive elements
+    this.disableEditingControls();
+    
+    // Update existing nodes to be read-only
+    this.nodes.forEach(node => {
+      this.updateNodeReadOnlyState(node.id);
+    });
+    
+  } else {
+    // Remove read-only mode
+    this.canvasElement?.classList.remove('read-only');
+    this.hideReadOnlyIndicator();
+    this.enableEditingControls();
+    
+    // Update existing nodes to be editable
+    this.nodes.forEach(node => {
+      this.updateNodeEditableState(node.id);
+    });
+  }
+  
+  this.logger.logBusinessLogic('Read-only mode updated', {
+    isReadOnly: this.isReadOnly,
+    shareType: shareInfo?.type
+  }, correlationId);
+  
+  this.logger.logFunctionExit('setReadOnlyMode', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <add-method name="showReadOnlyIndicator">
+        <description>Display read-only mode indicator</description>
+        <implementation><![CDATA[
+private showReadOnlyIndicator(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('showReadOnlyIndicator', {}, correlationId);
+  
+  // Remove existing indicator if any
+  this.hideReadOnlyIndicator();
+  
+  // Create indicator element
+  const indicator = document.createElement('div');
+  indicator.className = 'read-only-indicator';
+  indicator.innerHTML = `
+    <div class="read-only-banner">
+      <svg class="read-only-icon" width="16" height="16" viewBox="0 0 24 24">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+      </svg>
+      <span class="read-only-text">
+        View-only mode
+        ${this.shareInfo ? ` · Shared by ${this.shareInfo.owner}` : ''}
+      </span>
+    </div>
+  `;
+  
+  // Add to canvas container
+  const canvasContainer = this.canvasElement?.parentElement;
+  if (canvasContainer) {
+    canvasContainer.insertBefore(indicator, canvasContainer.firstChild);
+  }
+  
+  this.logger.logBusinessLogic('Read-only indicator displayed', {
+    shareInfo: this.shareInfo
+  }, correlationId);
+  
+  this.logger.logFunctionExit('showReadOnlyIndicator', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <add-method name="hideReadOnlyIndicator">
+        <description>Hide read-only mode indicator</description>
+        <implementation><![CDATA[
+private hideReadOnlyIndicator(): void {
+  const indicator = document.querySelector('.read-only-indicator');
+  indicator?.remove();
+}
+        ]]></implementation>
+      </add-method>
+
+      <add-method name="disableEditingControls">
+        <description>Disable all editing controls in read-only mode</description>
+        <implementation><![CDATA[
+private disableEditingControls(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('disableEditingControls', {}, correlationId);
+  
+  // Hide control buttons
+  const controlButtons = document.querySelectorAll(
+    '.add-root-button, .auto-layout-button, .export-button'
+  );
+  controlButtons.forEach(button => {
+    (button as HTMLElement).style.display = 'none';
+  });
+  
+  // Disable canvas interactions
+  if (this.canvasElement) {
+    // Remove drag and drop event listeners
+    this.canvasElement.style.pointerEvents = 'none';
+    this.canvasContentElement.style.pointerEvents = 'auto';
+  }
+  
+  // Update cursor
+  if (this.canvasContentElement) {
+    this.canvasContentElement.style.cursor = 'default';
+  }
+  
+  this.logger.logBusinessLogic('Editing controls disabled', {}, correlationId);
+  this.logger.logFunctionExit('disableEditingControls', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <add-method name="enableEditingControls">
+        <description>Re-enable editing controls</description>
+        <implementation><![CDATA[
+private enableEditingControls(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('enableEditingControls', {}, correlationId);
+  
+  // Show control buttons
+  const controlButtons = document.querySelectorAll(
+    '.add-root-button, .auto-layout-button, .export-button'
+  );
+  controlButtons.forEach(button => {
+    (button as HTMLElement).style.display = '';
+  });
+  
+  // Enable canvas interactions
+  if (this.canvasElement) {
+    this.canvasElement.style.pointerEvents = 'auto';
+  }
+  
+  // Restore cursor
+  if (this.canvasContentElement) {
+    this.canvasContentElement.style.cursor = 'grab';
+  }
+  
+  this.logger.logBusinessLogic('Editing controls enabled', {}, correlationId);
+  this.logger.logFunctionExit('enableEditingControls', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <add-method name="updateNodeReadOnlyState">
+        <description>Update a specific node to be read-only</description>
+        <implementation><![CDATA[
+private updateNodeReadOnlyState(nodeId: string): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('updateNodeReadOnlyState', { nodeId }, correlationId);
+  
+  const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+  if (!nodeElement) {
+    return;
+  }
+  
+  // Add read-only class
+  nodeElement.classList.add('read-only');
+  
+  // Disable all interactive elements
+  const interactiveElements = nodeElement.querySelectorAll(
+    'button, textarea, input, .add-child-button, .add-markdown-button, ' +
+    '.delete-button, .submit-button, .resize-handle, .block-resize-handle'
+  );
+  
+  interactiveElements.forEach(element => {
+    if (element instanceof HTMLElement) {
+      element.style.display = 'none';
+    } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      element.readOnly = true;
+      element.disabled = true;
+    }
+  });
+  
+  // Disable dragging
+  const nodeHeader = nodeElement.querySelector('.node-header');
+  if (nodeHeader instanceof HTMLElement) {
+    nodeHeader.style.cursor = 'default';
+    nodeHeader.classList.add('no-drag');
+  }
+  
+  // Update Quill editors to read-only
+  const node = this.nodes.get(nodeId);
+  if (node) {
+    node.blocks.forEach(block => {
+      if (block.type === 'prompt' || block.type === 'response') {
+        const quillInstance = this.quillInstances.get(block.id);
+        if (quillInstance) {
+          quillInstance.disable();
+        }
+      }
+    });
+  }
+  
+  this.logger.logBusinessLogic('Node updated to read-only', { nodeId }, correlationId);
+  this.logger.logFunctionExit('updateNodeReadOnlyState', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <add-method name="updateNodeEditableState">
+        <description>Update a specific node to be editable</description>
+        <implementation><![CDATA[
+private updateNodeEditableState(nodeId: string): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('updateNodeEditableState', { nodeId }, correlationId);
+  
+  const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+  if (!nodeElement) {
+    return;
+  }
+  
+  // Remove read-only class
+  nodeElement.classList.remove('read-only');
+  
+  // Re-enable interactive elements
+  const interactiveElements = nodeElement.querySelectorAll(
+    'button, textarea, input, .add-child-button, .add-markdown-button, ' +
+    '.delete-button, .submit-button, .resize-handle, .block-resize-handle'
+  );
+  
+  interactiveElements.forEach(element => {
+    if (element instanceof HTMLElement) {
+      element.style.display = '';
+    } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      element.readOnly = false;
+      element.disabled = false;
+    }
+  });
+  
+  // Enable dragging
+  const nodeHeader = nodeElement.querySelector('.node-header');
+  if (nodeHeader instanceof HTMLElement) {
+    nodeHeader.style.cursor = 'move';
+    nodeHeader.classList.remove('no-drag');
+  }
+  
+  // Enable Quill editors
+  const node = this.nodes.get(nodeId);
+  if (node) {
+    node.blocks.forEach(block => {
+      if (block.type === 'prompt' || block.type === 'response') {
+        const quillInstance = this.quillInstances.get(block.id);
+        if (quillInstance) {
+          quillInstance.enable();
+        }
+      }
+    });
+  }
+  
+  this.logger.logBusinessLogic('Node updated to editable', { nodeId }, correlationId);
+  this.logger.logFunctionExit('updateNodeEditableState', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <modify-method name="renderNode">
+        <description>Check read-only mode when rendering nodes</description>
+        <changes><![CDATA[
+// Add at the beginning of renderNode method
+if (this.isReadOnly) {
+  // Add read-only class to node element
+  nodeElement.classList.add('read-only');
+  
+  // Hide all action buttons
+  const actionButtons = nodeElement.querySelectorAll(
+    '.add-child-button, .add-markdown-button, .delete-button, .submit-button'
+  );
+  actionButtons.forEach(button => {
+    (button as HTMLElement).style.display = 'none';
+  });
+  
+  // Disable node header editing
+  const nodeNameSpan = nodeElement.querySelector('.node-name');
+  if (nodeNameSpan) {
+    nodeNameSpan.removeAttribute('contenteditable');
+  }
+  
+  // Disable resize handles
+  const resizeHandles = nodeElement.querySelectorAll('.resize-handle, .block-resize-handle');
+  resizeHandles.forEach(handle => {
+    (handle as HTMLElement).style.display = 'none';
+  });
+}
+        ]]></changes>
+      </modify-method>
+
+      <modify-method name="setupNodeDragging">
+        <description>Prevent dragging in read-only mode</description>
+        <changes><![CDATA[
+// Add at the beginning of the mousedown handler
+if (this.isReadOnly) {
+  this.logger.logBusinessLogic('Dragging prevented in read-only mode', {}, correlationId);
+  return;
+}
+        ]]></changes>
+      </modify-method>
+
+      <modify-method name="handleCanvasDrop">
+        <description>Prevent drops in read-only mode</description>
+        <changes><![CDATA[
+// Add at the beginning of the method
+if (this.isReadOnly) {
+  event.preventDefault();
+  this.logger.logBusinessLogic('Drop prevented in read-only mode', {}, correlationId);
+  return;
+}
+        ]]></changes>
+      </modify-method>
+
+      <add-styles><![CDATA[
+/* Read-only mode styles */
+.read-only-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(255,255,255,0));
+  padding: 10px 20px;
+  pointer-events: none;
+}
+
+.read-only-banner {
+  display: inline-flex;
+  align-items: center;
+  background: #2196F3;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.read-only-icon {
+  fill: white;
+  margin-right: 8px;
+}
+
+.read-only-text {
+  font-weight: 500;
+}
+
+/* Canvas in read-only mode */
+.canvas.read-only {
+  background-color: #fafafa;
+}
+
+.canvas.read-only .canvas-content {
+  cursor: default !important;
+}
+
+/* Nodes in read-only mode */
+.node.read-only {
+  opacity: 0.95;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.node.read-only .node-header {
+  cursor: default !important;
+  background-color: #f8f8f8;
+}
+
+.node.read-only .node-header.no-drag {
+  cursor: default !important;
+}
+
+.node.read-only textarea,
+.node.read-only input {
+  background-color: #f5f5f5;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.node.read-only .quill-editor {
+  background-color: #f5f5f5;
+}
+
+.node.read-only .ql-toolbar {
+  display: none;
+}
+
+.node.read-only .ql-editor {
+  cursor: default;
+}
+
+/* Hide interactive elements in read-only mode */
+.read-only .add-child-button,
+.read-only .add-markdown-button,
+.read-only .delete-button,
+.read-only .submit-button,
+.read-only .resize-handle,
+.read-only .block-resize-handle,
+.read-only .minimize-button,
+.read-only .collapse-button {
+  display: none !important;
+}
+
+/* Disable hover effects in read-only mode */
+.read-only .node-header:hover,
+.read-only .block-header:hover {
+  background-color: inherit;
+}
+
+/* Visual indicator for shared workspace */
+.shared-workspace-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: #2196F3;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shared-workspace-badge svg {
+  width: 14px;
+  height: 14px;
+  fill: white;
+}
+      ]]></add-styles>
+    </file>
+  </graph-editor-modifications>
+
+  <shared-workspace-indicator-component>
+    <file path="src/components/shared-workspace-indicator.ts">
+      <imports><![CDATA[
+import { Logger } from '../utils/logger';
+
+interface SharedWorkspaceIndicatorConfig {
+  container: HTMLElement;
+  shareInfo: {
+    type: 'direct' | 'link';
+    owner: string;
+    workspaceName: string;
+  };
+}
+      ]]></imports>
+
+      <class name="SharedWorkspaceIndicator">
+        <constructor><![CDATA[
+constructor(private config: SharedWorkspaceIndicatorConfig) {
+  this.logger = new Logger('SharedWorkspaceIndicator', 'ui');
+  this.render();
+}
+
+private logger: Logger;
+        ]]></constructor>
+
+        <method name="render">
+          <implementation><![CDATA[
+private render(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('render', { config: this.config }, correlationId);
+  
+  const indicator = document.createElement('div');
+  indicator.className = 'shared-workspace-indicator';
+  indicator.innerHTML = `
+    <div class="shared-info">
+      <svg class="shared-icon" viewBox="0 0 24 24" width="20" height="20">
+        <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
+      </svg>
+      <div class="shared-details">
+        <div class="shared-title">${this.config.shareInfo.workspaceName}</div>
+        <div class="shared-subtitle">
+          Shared by ${this.config.shareInfo.owner} · View only
+        </div>
+      </div>
+    </div>
+    <button class="leave-button" title="Stop viewing this workspace">
+      Leave
+    </button>
+  `;
+  
+  // Add styles
+  this.addStyles();
+  
+  // Insert at the top of the container
+  this.config.container.insertBefore(indicator, this.config.container.firstChild);
+  
+  // Attach event listeners
+  const leaveButton = indicator.querySelector('.leave-button');
+  leaveButton?.addEventListener('click', () => this.handleLeave());
+  
+  this.logger.logBusinessLogic('Shared workspace indicator rendered', {
+    shareType: this.config.shareInfo.type,
+    owner: this.config.shareInfo.owner
+  }, correlationId);
+  
+  this.logger.logFunctionExit('render', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="addStyles">
+          <implementation><![CDATA[
+private addStyles(): void {
+  const styleId = 'shared-workspace-indicator-styles';
+  
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      .shared-workspace-indicator {
+        background: #E3F2FD;
+        border-bottom: 1px solid #BBDEFB;
+        padding: 12px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .shared-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      
+      .shared-icon {
+        fill: #1976D2;
+        flex-shrink: 0;
+      }
+      
+      .shared-details {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      
+      .shared-title {
+        font-weight: 600;
+        color: #1976D2;
+        font-size: 16px;
+      }
+      
+      .shared-subtitle {
+        font-size: 13px;
+        color: #666;
+      }
+      
+      .leave-button {
+        background: white;
+        border: 1px solid #ddd;
+        padding: 6px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s;
+      }
+      
+      .leave-button:hover {
+        background: #f5f5f5;
+        border-color: #ccc;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+        ]]></implementation>
+        </method>
+
+        <method name="handleLeave">
+          <implementation><![CDATA[
+private handleLeave(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('handleLeave', {}, correlationId);
+  
+  if (confirm('Are you sure you want to leave this shared workspace?')) {
+    // Navigate back to user's workspaces
+    window.location.href = '/';
+  }
+  
+  this.logger.logFunctionExit('handleLeave', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+      </class>
+    </file>
+  </shared-workspace-indicator-component>
+
+  <session-manager-updates>
+    <file path="src/services/session-manager.ts" modifications="true">
+      <add-method name="loadSharedWorkspace">
+        <description>Load a shared workspace in read-only mode</description>
+        <implementation><![CDATA[
+public async loadSharedWorkspace(workspaceId: string): Promise<void> {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('loadSharedWorkspace', { workspaceId }, correlationId);
+  
+  try {
+    // Stop auto-save for current workspace
+    this.stopAutoSave();
+    
+    // Fetch shared workspace
+    const response = await this.authenticatedRequest(`/api/workspaces/${workspaceId}`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to load shared workspace');
+    }
+    
+    const workspace = await response.json();
+    
+    // Check if it's a shared workspace
+    if (!workspace.isReadOnly) {
+      throw new Error('This is not a shared workspace');
+    }
+    
+    // Update current workspace (don't save to localStorage as it's not owned)
+    this.currentWorkspaceId = workspaceId;
+    
+    // Dispatch event for GraphEditor to load
+    const event = new CustomEvent('loadSharedWorkspace', {
+      detail: {
+        workspace,
+        isReadOnly: true,
+        shareInfo: workspace.shareInfo
+      }
+    });
+    window.dispatchEvent(event);
+    
+    this.logger.logBusinessLogic('Shared workspace loaded', {
+      workspaceId,
+      workspaceName: workspace.name,
+      shareType: workspace.shareInfo?.type
+    }, correlationId);
+    
+  } catch (error) {
+    this.logger.logError('Failed to load shared workspace', error, { correlationId });
+    throw error;
+  }
+  
+  this.logger.logFunctionExit('loadSharedWorkspace', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <modify-method name="saveCurrentWorkspace">
+        <description>Prevent saving shared workspaces</description>
+        <changes><![CDATA[
+// Add at the beginning of the method
+if (this.graphEditor?.isReadOnly) {
+  this.logger.logBusinessLogic('Skipping save for read-only workspace', {
+    workspaceId: this.currentWorkspaceId
+  }, correlationId);
+  return;
+}
+        ]]></changes>
+      </modify-method>
+    </file>
+  </session-manager-updates>
+
+  <index-updates>
+    <file path="src/index.ts" modifications="true">
+      <add-event-listener name="loadSharedWorkspace">
+        <description>Handle loading shared workspaces</description>
+        <implementation><![CDATA[
+// Listen for shared workspace load events
+window.addEventListener('loadSharedWorkspace', (event: CustomEvent) => {
+  const { workspace, isReadOnly, shareInfo } = event.detail;
+  
+  logger.logBusinessLogic('Loading shared workspace', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    isReadOnly
+  }, correlationId);
+  
+  // Clear current graph
+  graphEditor.clearGraph();
+  
+  // Set read-only mode
+  graphEditor.setReadOnlyMode(isReadOnly, shareInfo);
+  
+  // Load workspace data
+  if (workspace.graphData) {
+    const nodes = JSON.parse(workspace.graphData);
+    graphEditor.loadFromJSON({ nodes });
+  }
+  
+  // Restore canvas state
+  if (workspace.canvasState) {
+    const canvasState = JSON.parse(workspace.canvasState);
+    graphEditor.restoreCanvasState(canvasState);
+  }
+  
+  // Show shared workspace indicator
+  if (isReadOnly && shareInfo) {
+    new SharedWorkspaceIndicator({
+      container: document.body,
+      shareInfo: {
+        ...shareInfo,
+        workspaceName: workspace.name
+      }
+    });
+  }
+  
+  // Update page title
+  document.title = `${workspace.name} (View Only) - Noded`;
+});
+        ]]></implementation>
+      </add-event-listener>
+
+      <modify-event-delegation>
+        <description>Prevent editing actions in read-only mode</description>
+        <changes><![CDATA[
+// In the global event delegation handler, add checks for read-only mode
+if (graphEditor.isReadOnly) {
+  // List of actions to prevent in read-only mode
+  const readOnlyBlockedActions = [
+    'add-child', 'add-markdown', 'delete-block', 'submit-to-llm',
+    'toggle-minimize', 'toggle-collapse', 'toggle-preview'
+  ];
+  
+  const action = (event.target as HTMLElement).dataset.action;
+  if (action && readOnlyBlockedActions.includes(action)) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    logger.logBusinessLogic('Action blocked in read-only mode', {
+      action,
+      nodeId: (event.target as HTMLElement).dataset.nodeId
+    }, correlationId);
+    
+    // Show a toast notification
+    showToast('This workspace is view-only', 'info');
+    return;
+  }
+}
+        ]]></changes>
+      </modify-event-delegation>
+    </file>
+  </index-updates>
+
+  <testing>
+    <test-file path="tests/components/graph-editor-readonly.test.ts">
+      <test-suite name="GraphEditor Read-Only Mode">
+        <setup><![CDATA[
+let graphEditor: GraphEditor;
+let mockCanvas: HTMLElement;
+let mockCanvasContent: HTMLElement;
+
+beforeEach(() => {
+  // Setup DOM
+  document.body.innerHTML = `
+    <div class="canvas-container">
+      <div class="canvas" id="canvas">
+        <div class="canvas-content" id="canvasContent"></div>
+        <svg class="connections" id="connections"></svg>
+      </div>
+    </div>
+    <button class="add-root-button">Add Root</button>
+    <button class="auto-layout-button">Auto Layout</button>
+  `;
+  
+  mockCanvas = document.getElementById('canvas')!;
+  mockCanvasContent = document.getElementById('canvasContent')!;
+  
+  graphEditor = new GraphEditor(
+    mockCanvas,
+    mockCanvasContent,
+    document.getElementById('connections') as unknown as SVGElement,
+    false
+  );
+});
+        ]]></setup>
+
+        <test name="should enable read-only mode">
+          <implementation><![CDATA[
+graphEditor.setReadOnlyMode(true, { type: 'direct', owner: 'john_doe' });
+
+expect(graphEditor.isReadOnly).toBe(true);
+expect(mockCanvas.classList.contains('read-only')).toBe(true);
+expect(document.querySelector('.read-only-indicator')).toBeTruthy();
+expect(document.querySelector('.read-only-text')?.textContent).toContain('Shared by john_doe');
+          ]]></implementation>
+        </test>
+
+        <test name="should hide control buttons in read-only mode">
+          <implementation><![CDATA[
+graphEditor.setReadOnlyMode(true);
+
+const addRootButton = document.querySelector('.add-root-button') as HTMLElement;
+const autoLayoutButton = document.querySelector('.auto-layout-button') as HTMLElement;
+
+expect(addRootButton.style.display).toBe('none');
+expect(autoLayoutButton.style.display).toBe('none');
+          ]]></implementation>
+        </test>
+
+        <test name="should disable node editing in read-only mode">
+          <implementation><![CDATA[
+// Create a node
+const node = graphEditor.createNode({ x: 100, y: 100 });
+graphEditor.addNode(node);
+graphEditor.renderNode(node);
+
+// Enable read-only mode
+graphEditor.setReadOnlyMode(true);
+
+const nodeElement = document.querySelector(`[data-node-id="${node.id}"]`);
+expect(nodeElement?.classList.contains('read-only')).toBe(true);
+
+// Check that interactive elements are hidden
+const addChildButton = nodeElement?.querySelector('.add-child-button') as HTMLElement;
+const addMarkdownButton = nodeElement?.querySelector('.add-markdown-button') as HTMLElement;
+
+expect(addChildButton?.style.display).toBe('none');
+expect(addMarkdownButton?.style.display).toBe('none');
+          ]]></implementation>
+        </test>
+
+        <test name="should prevent dragging in read-only mode">
+          <implementation><![CDATA[
+// Create a node
+const node = graphEditor.createNode({ x: 100, y: 100 });
+graphEditor.addNode(node);
+graphEditor.renderNode(node);
+
+// Enable read-only mode
+graphEditor.setReadOnlyMode(true);
+
+const nodeHeader = document.querySelector('.node-header') as HTMLElement;
+const initialPosition = { x: node.position.x, y: node.position.y };
+
+// Simulate drag
+const mousedownEvent = new MouseEvent('mousedown', {
+  clientX: 100,
+  clientY: 100,
+  bubbles: true
+});
+nodeHeader.dispatchEvent(mousedownEvent);
+
+const mousemoveEvent = new MouseEvent('mousemove', {
+  clientX: 200,
+  clientY: 200,
+  bubbles: true
+});
+document.dispatchEvent(mousemoveEvent);
+
+const mouseupEvent = new MouseEvent('mouseup', { bubbles: true });
+document.dispatchEvent(mouseupEvent);
+
+// Position should not change
+expect(node.position).toEqual(initialPosition);
+          ]]></implementation>
+        </test>
+
+        <test name="should disable Quill editors in read-only mode">
+          <implementation><![CDATA[
+// Create a node with a prompt block
+const node = graphEditor.createNode({ x: 100, y: 100 });
+graphEditor.addNode(node);
+graphEditor.renderNode(node);
+
+// Get Quill instance
+const promptBlock = node.blocks[0];
+const quillInstance = graphEditor.quillInstances.get(promptBlock.id);
+
+// Enable read-only mode
+graphEditor.setReadOnlyMode(true);
+
+// Check that Quill is disabled
+expect(quillInstance?.isEnabled()).toBe(false);
+          ]]></implementation>
+        </test>
+
+        <test name="should restore edit mode">
+          <implementation><![CDATA[
+// Enable read-only mode
+graphEditor.setReadOnlyMode(true);
+
+// Then disable it
+graphEditor.setReadOnlyMode(false);
+
+expect(graphEditor.isReadOnly).toBe(false);
+expect(mockCanvas.classList.contains('read-only')).toBe(false);
+expect(document.querySelector('.read-only-indicator')).toBeFalsy();
+
+// Control buttons should be visible again
+const addRootButton = document.querySelector('.add-root-button') as HTMLElement;
+expect(addRootButton.style.display).not.toBe('none');
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+
+    <test-file path="tests/integration/shared-workspace-flow.test.ts">
+      <test-suite name="Shared Workspace Flow">
+        <test name="should load shared workspace in read-only mode">
+          <implementation><![CDATA[
+// Mock shared workspace response
+const sharedWorkspace = {
+  id: 'workspace_123',
+  name: 'Shared Project',
+  graphData: JSON.stringify({
+    nodes: [{
+      id: 'node_1',
+      position: { x: 100, y: 100 },
+      blocks: [{ id: 'block_1', type: 'prompt', content: 'Test' }],
+      children: []
+    }]
+  }),
+  isReadOnly: true,
+  shareInfo: {
+    type: 'direct',
+    owner: 'john_doe'
+  }
+};
+
+// Simulate loading shared workspace
+const event = new CustomEvent('loadSharedWorkspace', {
+  detail: {
+    workspace: sharedWorkspace,
+    isReadOnly: true,
+    shareInfo: sharedWorkspace.shareInfo
+  }
+});
+window.dispatchEvent(event);
+
+// Wait for async operations
+await new Promise(resolve => setTimeout(resolve, 100));
+
+// Check that workspace is loaded in read-only mode
+expect(graphEditor.isReadOnly).toBe(true);
+expect(graphEditor.nodes.size).toBe(1);
+expect(document.querySelector('.read-only-indicator')).toBeTruthy();
+expect(document.querySelector('.shared-workspace-indicator')).toBeTruthy();
+expect(document.title).toContain('(View Only)');
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+  </testing>
+
+  <deliverables>
+    <deliverable type="feature">
+      <item>Complete read-only mode implementation in GraphEditor</item>
+      <item>Visual indicators for shared workspaces</item>
+      <item>Disabled editing controls in read-only mode</item>
+      <item>SharedWorkspaceIndicator component</item>
+    </deliverable>
+    
+    <deliverable type="ui">
+      <item>Read-only banner at top of canvas</item>
+      <item>Shared workspace indicator with owner info</item>
+      <item>Visual styling for read-only elements</item>
+      <item>Disabled state for all interactive controls</item>
+    </deliverable>
+    
+    <deliverable type="functionality">
+      <item>Prevention of all editing actions</item>
+      <item>Disabled dragging and resizing</item>
+      <item>Read-only Quill editors</item>
+      <item>Blocked keyboard shortcuts</item>
+    </deliverable>
+    
+    <deliverable type="testing">
+      <item>Complete test coverage for read-only mode</item>
+      <item>Integration tests for shared workspace flow</item>
+      <item>UI interaction tests</item>
+    </deliverable>
+  </deliverables>
+
+  <success-criteria>
+    <criterion>Read-only mode properly enforced across all interactions</criterion>
+    <criterion>Clear visual indicators for shared workspaces</criterion>
+    <criterion>No ability to modify shared workspace content</criterion>
+    <criterion>Smooth transition between read-only and edit modes</criterion>
+    <criterion>All tests pass with proper coverage</criterion>
+    <criterion>User can easily identify they are viewing a shared workspace</criterion>
+  </success-criteria>
+</phase-implementation>

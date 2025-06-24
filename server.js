@@ -5,6 +5,9 @@ const path = require('path');
 const { DatabaseService } = require('./dist-server/services/database-service');
 const { AuthenticationService } = require('./dist-server/services/authentication-service');
 const { WorkspaceService } = require('./dist-server/services/workspace-service');
+const { ShareService } = require('./dist-server/services/share-service');
+const { createShareRoutes } = require('./dist-server/routes/share-routes');
+const { requireShareAccess } = require('./dist-server/middleware/share-auth');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -23,14 +26,25 @@ app.use('/config', express.static(path.join(__dirname, 'config')));
 let authService;
 let workspaceService;
 let dbService;
+let shareService;
 
 async function initializeServices() {
   try {
     dbService = DatabaseService.getInstance();
     await dbService.initialize();
     
+    // Run migration for sharing tables
+    try {
+      await dbService.runMigration();
+      console.log('Database migration completed successfully');
+    } catch (error) {
+      console.error('Failed to run migration:', error);
+      // Don't exit - migration might have already been applied
+    }
+    
     authService = AuthenticationService.getInstance();
     workspaceService = WorkspaceService.getInstance();
+    shareService = new ShareService(dbService);
     
     console.log('Services initialized successfully');
   } catch (error) {
@@ -129,24 +143,29 @@ app.post('/api/workspaces', requireAuth, async (req, res) => {
   }
 });
 
-// Get workspace
-app.get('/api/workspaces/:workspaceId', requireAuth, async (req, res) => {
-  try {
-    const workspace = await workspaceService.getWorkspace(
-      req.user.userId,
-      req.params.workspaceId
-    );
-    
-    if (!workspace) {
-      return res.status(404).json({ error: 'Workspace not found' });
+// Get workspace (supports shared workspaces)
+app.get('/api/workspaces/:workspaceId', 
+  requireShareAccess(shareService),
+  async (req, res) => {
+    try {
+      const workspace = await workspaceService.getWorkspaceById(req.params.workspaceId);
+      
+      if (!workspace) {
+        return res.status(404).json({ error: 'Workspace not found' });
+      }
+      
+      // Add read-only flag for shared workspaces
+      if (req.shareAccess === 'view') {
+        workspace.isReadOnly = true;
+      }
+      
+      res.json(workspace);
+    } catch (error) {
+      console.error('Get workspace error:', error);
+      res.status(500).json({ error: 'Failed to get workspace' });
     }
-    
-    res.json(workspace);
-  } catch (error) {
-    console.error('Get workspace error:', error);
-    res.status(500).json({ error: 'Failed to get workspace' });
   }
-});
+);
 
 // Update workspace
 app.put('/api/workspaces/:workspaceId', requireAuth, async (req, res) => {
@@ -184,6 +203,10 @@ app.get('/api/workspaces/default/get-or-create', requireAuth, async (req, res) =
     res.status(500).json({ error: 'Failed to get default workspace' });
   }
 });
+
+// === Share Routes ===
+const shareRoutes = createShareRoutes(shareService, workspaceService, requireAuth);
+app.use('/api/shares', shareRoutes);
 
 // Serve index.html for all other routes
 app.get('*', (req, res) => {

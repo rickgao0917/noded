@@ -1,13 +1,16 @@
 import { Logger } from '../utils/logger.js';
 import { SessionManager } from '../services/session-manager.js';
+import { ShareDialog } from './share-dialog.js';
 export class WorkspaceSidebar {
     constructor() {
         this.logger = new Logger('WorkspaceSidebar');
         this.sessionManager = SessionManager.getInstance();
         this.workspaces = [];
+        this.sharedWorkspaces = [];
         this.currentWorkspaceId = null;
         this.editor = null;
         this.onWorkspaceChange = null;
+        this.shareDialog = null;
     }
     static getInstance() {
         if (!WorkspaceSidebar.instance) {
@@ -42,6 +45,16 @@ export class WorkspaceSidebar {
       <div class="workspace-list" id="workspace-list">
         <div class="workspace-loading">Loading...</div>
       </div>
+      
+      <div class="workspace-section-divider"></div>
+      
+      <div class="shared-workspace-section">
+        <h4 class="shared-workspace-header">Shared with me</h4>
+        <div class="shared-workspace-list" id="shared-workspace-list">
+          <div class="workspace-loading">Loading...</div>
+        </div>
+      </div>
+      
       <div class="workspace-sidebar-footer">
         <button class="workspace-logout-btn" id="logout-btn" title="Logout">🚪 Logout</button>
       </div>
@@ -246,6 +259,48 @@ export class WorkspaceSidebar {
         .workspace-logout-btn:hover {
           background: #c82333;
         }
+
+        .workspace-section-divider {
+          border-bottom: 1px solid #ddd;
+          margin: 1rem 0;
+        }
+
+        .shared-workspace-section {
+          padding: 0 0.5rem;
+        }
+
+        .shared-workspace-header {
+          padding: 0 0.5rem;
+          margin: 0.5rem 0;
+          font-size: 0.9rem;
+          color: #666;
+          font-weight: 500;
+        }
+
+        .shared-workspace-list {
+          padding: 0;
+        }
+
+        .workspace-share-btn {
+          padding: 0.25rem;
+          border: 1px solid #28a745;
+          background: white;
+          color: #28a745;
+          border-radius: 3px;
+          cursor: pointer;
+          font-size: 0.75rem;
+          line-height: 1;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .workspace-share-btn:hover {
+          background: #28a745;
+          color: white;
+        }
       `;
             document.head.appendChild(style);
         }
@@ -278,6 +333,8 @@ export class WorkspaceSidebar {
                 updatedAt: new Date(w.updatedAt)
             }));
             this.renderWorkspaces();
+            // Also load shared workspaces
+            await this.loadSharedWorkspaces();
         }
         catch (error) {
             this.logger.logError(error, 'loadWorkspaces');
@@ -285,6 +342,33 @@ export class WorkspaceSidebar {
         }
         finally {
             this.logger.logFunctionExit('loadWorkspaces');
+        }
+    }
+    async loadSharedWorkspaces() {
+        this.logger.logFunctionEntry('loadSharedWorkspaces');
+        try {
+            const response = await this.sessionManager.makeAuthenticatedRequest('/api/shares/shared-with-me');
+            if (!response.ok) {
+                throw new Error('Failed to load shared workspaces');
+            }
+            const data = await response.json();
+            this.sharedWorkspaces = data.workspaces.map((w) => ({
+                id: w.id,
+                name: w.name,
+                updatedAt: new Date(w.lastAccessed || w.sharedAt),
+                ownerId: w.ownerId,
+                ownerUsername: w.ownerUsername,
+                sharedAt: new Date(w.sharedAt),
+                expiresAt: w.expiresAt ? new Date(w.expiresAt) : undefined
+            }));
+            this.renderSharedWorkspaces();
+        }
+        catch (error) {
+            this.logger.logError(error, 'loadSharedWorkspaces');
+            // Don't show error for shared workspaces - they're optional
+        }
+        finally {
+            this.logger.logFunctionExit('loadSharedWorkspaces');
         }
     }
     renderWorkspaces() {
@@ -305,6 +389,7 @@ export class WorkspaceSidebar {
           </div>
         </div>
         <div class="workspace-actions">
+          <button class="workspace-share-btn" title="Share" data-action="share">🔗</button>
           <button class="workspace-rename-btn" title="Rename" data-action="rename">✏️</button>
           <button class="workspace-delete-btn" title="Delete" data-action="delete">🗑</button>
         </div>
@@ -318,7 +403,11 @@ export class WorkspaceSidebar {
                 const workspaceId = item.getAttribute('data-workspace-id');
                 if (!workspaceId)
                     return;
-                if (target.getAttribute('data-action') === 'rename') {
+                if (target.getAttribute('data-action') === 'share') {
+                    e.stopPropagation();
+                    this.openShareDialog(workspaceId);
+                }
+                else if (target.getAttribute('data-action') === 'rename') {
                     e.stopPropagation();
                     this.startRename(workspaceId);
                 }
@@ -332,6 +421,58 @@ export class WorkspaceSidebar {
             });
         });
     }
+    renderSharedWorkspaces() {
+        const listEl = document.getElementById('shared-workspace-list');
+        if (!listEl)
+            return;
+        if (this.sharedWorkspaces.length === 0) {
+            listEl.innerHTML = '<div class="workspace-loading">No shared workspaces</div>';
+            return;
+        }
+        listEl.innerHTML = this.sharedWorkspaces.map(workspace => `
+      <div class="workspace-item ${workspace.id === this.currentWorkspaceId ? 'active' : ''}" 
+           data-workspace-id="${workspace.id}">
+        <div class="workspace-info">
+          <div class="workspace-name">${this.escapeHtml(workspace.name)}</div>
+          <div class="workspace-meta">
+            Shared by ${this.escapeHtml(workspace.ownerUsername)} · ${this.formatDate(workspace.sharedAt)}
+          </div>
+        </div>
+      </div>
+    `).join('');
+        // Attach click handlers
+        const items = listEl.querySelectorAll('.workspace-item');
+        items.forEach(item => {
+            item.addEventListener('click', () => {
+                const workspaceId = item.getAttribute('data-workspace-id');
+                if (workspaceId) {
+                    this.switchWorkspace(workspaceId);
+                }
+            });
+        });
+    }
+    async openShareDialog(workspaceId) {
+        this.logger.logFunctionEntry('openShareDialog', { workspaceId });
+        const workspace = this.workspaces.find(w => w.id === workspaceId);
+        if (!workspace) {
+            return;
+        }
+        // Close any existing dialog
+        if (this.shareDialog) {
+            this.shareDialog.close();
+        }
+        // Create new share dialog
+        this.shareDialog = new ShareDialog({
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+            onClose: () => {
+                this.shareDialog = null;
+                // Reload shared workspaces in case something changed
+                this.loadSharedWorkspaces();
+            }
+        });
+        this.logger.logFunctionExit('openShareDialog');
+    }
     async createNewWorkspace() {
         this.logger.logFunctionEntry('createNewWorkspace');
         const name = prompt('Enter workspace name:');
@@ -341,6 +482,7 @@ export class WorkspaceSidebar {
         try {
             const response = await this.sessionManager.makeAuthenticatedRequest('/api/workspaces', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: name.trim() })
             });
             if (!response.ok) {
@@ -400,6 +542,7 @@ export class WorkspaceSidebar {
             const canvasState = this.editor.getCanvasState();
             await this.sessionManager.makeAuthenticatedRequest(`/api/workspaces/${this.currentWorkspaceId}`, {
                 method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ graphData, canvasState })
             });
         }
@@ -419,6 +562,7 @@ export class WorkspaceSidebar {
         try {
             const response = await this.sessionManager.makeAuthenticatedRequest(`/api/workspaces/${workspaceId}`, {
                 method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: newName })
             });
             if (!response.ok) {

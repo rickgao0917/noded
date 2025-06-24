@@ -1,0 +1,896 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phase-implementation>
+  <metadata>
+    <phase-number>2</phase-number>
+    <phase-name>API Endpoints</phase-name>
+    <estimated-duration>2 days</estimated-duration>
+    <dependencies>
+      <dependency>Phase 1 - ShareService implementation</dependency>
+      <dependency>Existing authentication middleware</dependency>
+      <dependency>Express.js server infrastructure</dependency>
+    </dependencies>
+  </metadata>
+
+  <objectives>
+    <objective priority="1">Implement user search API endpoint</objective>
+    <objective priority="2">Create workspace sharing CRUD endpoints</objective>
+    <objective priority="3">Add shared workspace listing endpoints</objective>
+    <objective priority="4">Implement share link generation and access</objective>
+    <objective priority="5">Add comprehensive API documentation and tests</objective>
+  </objectives>
+
+  <middleware-implementation>
+    <file path="server-src/middleware/share-auth.ts">
+      <imports><![CDATA[
+import { Request, Response, NextFunction } from 'express';
+import { ShareService } from '../services/share-service';
+import { Logger } from '../../src/utils/logger';
+
+interface ShareAuthRequest extends Request {
+  shareAccess?: 'owner' | 'view';
+  workspaceId?: string;
+}
+      ]]></imports>
+
+      <middleware name="requireShareAccess">
+        <description>Middleware to verify user has at least view access to workspace</description>
+        <implementation><![CDATA[
+export function requireShareAccess(shareService: ShareService) {
+  const logger = new Logger('ShareAuthMiddleware', 'middleware');
+  
+  return async (req: ShareAuthRequest, res: Response, next: NextFunction) => {
+    const correlationId = logger.generateCorrelationId();
+    
+    try {
+      logger.logFunctionEntry('requireShareAccess', {
+        method: req.method,
+        path: req.path,
+        workspaceId: req.params.workspaceId
+      }, correlationId);
+      
+      const workspaceId = req.params.workspaceId || req.params.id;
+      const userId = (req as any).user?.id;
+      
+      if (!userId) {
+        logger.logBusinessLogic('No authenticated user', {}, correlationId);
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      
+      if (!workspaceId) {
+        logger.logBusinessLogic('No workspace ID provided', {}, correlationId);
+        return res.status(400).json({ error: 'Workspace ID required' });
+      }
+      
+      const access = await shareService.validateShareAccess(workspaceId, userId);
+      
+      if (!access) {
+        logger.logBusinessLogic('Access denied', { workspaceId, userId }, correlationId);
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      // Attach access level to request for downstream use
+      req.shareAccess = access;
+      req.workspaceId = workspaceId;
+      
+      logger.logBusinessLogic('Access granted', {
+        workspaceId,
+        userId,
+        accessLevel: access
+      }, correlationId);
+      
+      logger.logFunctionExit('requireShareAccess', undefined, correlationId);
+      next();
+      
+    } catch (error) {
+      logger.logError('Share auth middleware error', error, { correlationId });
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  };
+}
+
+export function requireOwnership(shareService: ShareService) {
+  const logger = new Logger('ShareAuthMiddleware', 'middleware');
+  
+  return async (req: ShareAuthRequest, res: Response, next: NextFunction) => {
+    const correlationId = logger.generateCorrelationId();
+    
+    try {
+      // First check share access
+      await requireShareAccess(shareService)(req, res, () => {
+        // Then verify ownership
+        if (req.shareAccess !== 'owner') {
+          logger.logBusinessLogic('Ownership required but user is not owner', {
+            workspaceId: req.workspaceId,
+            accessLevel: req.shareAccess
+          }, correlationId);
+          return res.status(403).json({ error: 'Workspace ownership required' });
+        }
+        
+        next();
+      });
+      
+    } catch (error) {
+      logger.logError('Ownership check error', error, { correlationId });
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  };
+}
+        ]]></implementation>
+      </middleware>
+    </file>
+  </middleware-implementation>
+
+  <api-routes-implementation>
+    <file path="server-src/routes/share-routes.ts">
+      <imports><![CDATA[
+import { Router, Request, Response } from 'express';
+import { ShareService } from '../services/share-service';
+import { WorkspaceService } from '../services/workspace-service';
+import { requireAuth } from '../middleware/auth';
+import { requireShareAccess, requireOwnership } from '../middleware/share-auth';
+import { Logger } from '../../src/utils/logger';
+import { ValidationError } from '../../src/types/errors';
+import * as crypto from 'crypto';
+
+interface AuthenticatedRequest extends Request {
+  user?: { id: string; username: string };
+}
+      ]]></imports>
+
+      <router-setup><![CDATA[
+export function createShareRoutes(
+  shareService: ShareService,
+  workspaceService: WorkspaceService
+): Router {
+  const router = Router();
+  const logger = new Logger('ShareRoutes', 'api');
+  
+  // All share routes require authentication
+  router.use(requireAuth);
+      ]]></router-setup>
+
+      <endpoint path="/users/search" method="GET">
+        <description>Search for users to share with</description>
+        <implementation><![CDATA[
+  router.get('/users/search', async (req: AuthenticatedRequest, res: Response) => {
+    const correlationId = logger.generateCorrelationId();
+    
+    try {
+      logger.logFunctionEntry('searchUsers', {
+        query: req.query.q,
+        limit: req.query.limit
+      }, correlationId);
+      
+      const query = req.query.q as string;
+      const limit = parseInt(req.query.limit as string) || 10;
+      
+      if (!query || query.trim().length < 2) {
+        return res.status(400).json({
+          error: 'Search query must be at least 2 characters'
+        });
+      }
+      
+      const users = await shareService.searchUsers(
+        query,
+        req.user!.id,
+        limit
+      );
+      
+      logger.logBusinessLogic('User search completed', {
+        query,
+        resultCount: users.length
+      }, correlationId);
+      
+      res.json({ users });
+      
+    } catch (error) {
+      logger.logError('User search failed', error, { correlationId });
+      res.status(500).json({ error: 'Failed to search users' });
+    }
+  });
+        ]]></implementation>
+      </endpoint>
+
+      <endpoint path="/workspaces/:workspaceId/shares" method="POST">
+        <description>Share workspace with another user</description>
+        <implementation><![CDATA[
+  router.post('/workspaces/:workspaceId/shares',
+    requireOwnership(shareService),
+    async (req: AuthenticatedRequest, res: Response) => {
+      const correlationId = logger.generateCorrelationId();
+      
+      try {
+        logger.logFunctionEntry('createShare', {
+          workspaceId: req.params.workspaceId,
+          body: req.body
+        }, correlationId);
+        
+        const { shareWithUserId, expiresAt } = req.body;
+        
+        if (!shareWithUserId) {
+          return res.status(400).json({
+            error: 'shareWithUserId is required'
+          });
+        }
+        
+        // Validate expiration date if provided
+        if (expiresAt) {
+          const expDate = new Date(expiresAt);
+          if (isNaN(expDate.getTime()) || expDate <= new Date()) {
+            return res.status(400).json({
+              error: 'Invalid expiration date'
+            });
+          }
+        }
+        
+        const share = await shareService.shareWorkspace(
+          req.params.workspaceId,
+          req.user!.id,
+          shareWithUserId,
+          expiresAt
+        );
+        
+        // Get username for response
+        const sharedWithUser = await shareService.searchUsers(
+          shareWithUserId,
+          req.user!.id,
+          1
+        );
+        
+        logger.logBusinessLogic('Workspace shared', {
+          workspaceId: req.params.workspaceId,
+          shareId: share.id
+        }, correlationId);
+        
+        res.status(201).json({
+          ...share,
+          sharedWithUsername: sharedWithUser[0]?.username || 'Unknown'
+        });
+        
+      } catch (error) {
+        logger.logError('Share creation failed', error, { correlationId });
+        
+        if (error instanceof ValidationError) {
+          return res.status(400).json({ error: error.message });
+        }
+        
+        res.status(500).json({ error: 'Failed to share workspace' });
+      }
+    }
+  );
+        ]]></implementation>
+      </endpoint>
+
+      <endpoint path="/workspaces/:workspaceId/shares/:userId" method="DELETE">
+        <description>Revoke share access</description>
+        <implementation><![CDATA[
+  router.delete('/workspaces/:workspaceId/shares/:userId',
+    requireOwnership(shareService),
+    async (req: AuthenticatedRequest, res: Response) => {
+      const correlationId = logger.generateCorrelationId();
+      
+      try {
+        logger.logFunctionEntry('revokeShare', {
+          workspaceId: req.params.workspaceId,
+          userId: req.params.userId
+        }, correlationId);
+        
+        const success = await shareService.revokeShare(
+          req.params.workspaceId,
+          req.user!.id,
+          req.params.userId
+        );
+        
+        if (!success) {
+          return res.status(404).json({ error: 'Share not found' });
+        }
+        
+        logger.logBusinessLogic('Share revoked', {
+          workspaceId: req.params.workspaceId,
+          revokedUserId: req.params.userId
+        }, correlationId);
+        
+        res.status(204).send();
+        
+      } catch (error) {
+        logger.logError('Share revocation failed', error, { correlationId });
+        res.status(500).json({ error: 'Failed to revoke share' });
+      }
+    }
+  );
+        ]]></implementation>
+      </endpoint>
+
+      <endpoint path="/workspaces/:workspaceId/shares" method="GET">
+        <description>List all shares for a workspace</description>
+        <implementation><![CDATA[
+  router.get('/workspaces/:workspaceId/shares',
+    requireOwnership(shareService),
+    async (req: AuthenticatedRequest, res: Response) => {
+      const correlationId = logger.generateCorrelationId();
+      
+      try {
+        logger.logFunctionEntry('listShares', {
+          workspaceId: req.params.workspaceId
+        }, correlationId);
+        
+        const shares = await shareService.getMyShares(
+          req.user!.id,
+          req.params.workspaceId
+        );
+        
+        logger.logBusinessLogic('Shares retrieved', {
+          workspaceId: req.params.workspaceId,
+          count: shares.length
+        }, correlationId);
+        
+        res.json({ shares });
+        
+      } catch (error) {
+        logger.logError('Failed to list shares', error, { correlationId });
+        res.status(500).json({ error: 'Failed to retrieve shares' });
+      }
+    }
+  );
+        ]]></implementation>
+      </endpoint>
+
+      <endpoint path="/shared-with-me" method="GET">
+        <description>List workspaces shared with current user</description>
+        <implementation><![CDATA[
+  router.get('/shared-with-me', async (req: AuthenticatedRequest, res: Response) => {
+    const correlationId = logger.generateCorrelationId();
+    
+    try {
+      logger.logFunctionEntry('getSharedWithMe', {
+        userId: req.user!.id
+      }, correlationId);
+      
+      const workspaces = await shareService.getSharedWithMe(req.user!.id);
+      
+      logger.logBusinessLogic('Shared workspaces retrieved', {
+        userId: req.user!.id,
+        count: workspaces.length
+      }, correlationId);
+      
+      res.json({ workspaces });
+      
+    } catch (error) {
+      logger.logError('Failed to get shared workspaces', error, { correlationId });
+      res.status(500).json({ error: 'Failed to retrieve shared workspaces' });
+    }
+  });
+        ]]></implementation>
+      </endpoint>
+
+      <endpoint path="/workspaces/:workspaceId/share-link" method="POST">
+        <description>Generate shareable link</description>
+        <implementation><![CDATA[
+  router.post('/workspaces/:workspaceId/share-link',
+    requireOwnership(shareService),
+    async (req: AuthenticatedRequest, res: Response) => {
+      const correlationId = logger.generateCorrelationId();
+      
+      try {
+        logger.logFunctionEntry('createShareLink', {
+          workspaceId: req.params.workspaceId,
+          options: req.body
+        }, correlationId);
+        
+        const { requiresLogin = true, expiresIn } = req.body;
+        
+        const shareLink = await shareService.createShareLink(
+          req.params.workspaceId,
+          req.user!.id,
+          { requiresLogin, expiresIn }
+        );
+        
+        // Construct full URL
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+        const fullLink = `${baseUrl}/shared/${shareLink.token}`;
+        
+        logger.logBusinessLogic('Share link created', {
+          workspaceId: req.params.workspaceId,
+          linkId: shareLink.id
+        }, correlationId);
+        
+        res.status(201).json({
+          ...shareLink,
+          link: fullLink
+        });
+        
+      } catch (error) {
+        logger.logError('Share link creation failed', error, { correlationId });
+        res.status(500).json({ error: 'Failed to create share link' });
+      }
+    }
+  );
+        ]]></implementation>
+      </endpoint>
+
+      <endpoint path="/shared/:token" method="GET">
+        <description>Access workspace via share link</description>
+        <implementation><![CDATA[
+  router.get('/shared/:token', async (req: Request, res: Response) => {
+    const correlationId = logger.generateCorrelationId();
+    
+    try {
+      logger.logFunctionEntry('accessShareLink', {
+        token: req.params.token,
+        authenticated: !!(req as any).user
+      }, correlationId);
+      
+      const shareLink = await shareService.validateShareLink(req.params.token);
+      
+      if (!shareLink) {
+        return res.status(404).json({ error: 'Invalid or expired share link' });
+      }
+      
+      // Check if login is required
+      if (shareLink.requiresLogin && !(req as any).user) {
+        return res.status(401).json({ 
+          error: 'Authentication required',
+          requiresLogin: true 
+        });
+      }
+      
+      // Get workspace data
+      const workspace = await workspaceService.getWorkspace(
+        shareLink.workspaceId,
+        shareLink.ownerId
+      );
+      
+      if (!workspace) {
+        return res.status(404).json({ error: 'Workspace not found' });
+      }
+      
+      // Log access
+      await shareService.logShareActivity(
+        shareLink.workspaceId,
+        (req as any).user?.id || null,
+        'viewed',
+        { shareType: 'link_share', token: req.params.token }
+      );
+      
+      // Increment access count
+      await shareService.incrementShareLinkAccess(shareLink.id);
+      
+      logger.logBusinessLogic('Share link accessed', {
+        workspaceId: shareLink.workspaceId,
+        authenticated: !!(req as any).user
+      }, correlationId);
+      
+      res.json({
+        workspace: {
+          ...workspace,
+          isReadOnly: true,
+          shareInfo: {
+            type: 'link',
+            owner: shareLink.ownerUsername
+          }
+        }
+      });
+      
+    } catch (error) {
+      logger.logError('Share link access failed', error, { correlationId });
+      res.status(500).json({ error: 'Failed to access shared workspace' });
+    }
+  });
+        ]]></implementation>
+      </endpoint>
+
+      <router-export><![CDATA[
+  return router;
+}
+      ]]></router-export>
+    </file>
+  </api-routes-implementation>
+
+  <server-integration>
+    <file path="server.js" modifications="true">
+      <add-imports><![CDATA[
+const { ShareService } = require('./dist-server/services/share-service');
+const { createShareRoutes } = require('./dist-server/routes/share-routes');
+      ]]></add-imports>
+
+      <add-initialization><![CDATA[
+// Initialize ShareService
+const shareService = new ShareService(databaseService);
+
+// Add share routes
+const shareRoutes = createShareRoutes(shareService, workspaceService);
+app.use('/api/shares', shareRoutes);
+
+// Update workspace routes to use share auth for shared workspaces
+app.get('/api/workspaces/:id', 
+  requireShareAccess(shareService),
+  async (req, res) => {
+    try {
+      const workspace = await workspaceService.getWorkspace(
+        req.params.id,
+        req.shareAccess === 'owner' ? req.user.id : null
+      );
+      
+      if (!workspace) {
+        return res.status(404).json({ error: 'Workspace not found' });
+      }
+      
+      // Add read-only flag for shared workspaces
+      if (req.shareAccess === 'view') {
+        workspace.isReadOnly = true;
+      }
+      
+      res.json(workspace);
+    } catch (error) {
+      console.error('Failed to get workspace:', error);
+      res.status(500).json({ error: 'Failed to retrieve workspace' });
+    }
+  }
+);
+      ]]></add-initialization>
+    </file>
+  </server-integration>
+
+  <api-documentation>
+    <file path="docs/API_SHARING.md">
+      <content><![CDATA[
+# Workspace Sharing API Documentation
+
+## Authentication
+
+All sharing endpoints require authentication via Bearer token in the Authorization header:
+
+```
+Authorization: Bearer <session_token>
+```
+
+## Endpoints
+
+### Search Users
+
+Search for users to share workspaces with.
+
+**Endpoint:** `GET /api/shares/users/search`
+
+**Query Parameters:**
+- `q` (required): Search query (minimum 2 characters)
+- `limit` (optional): Maximum number of results (default: 10)
+
+**Response:**
+```json
+{
+  "users": [
+    {
+      "id": "user_123",
+      "username": "john_doe"
+    }
+  ]
+}
+```
+
+### Share Workspace
+
+Share a workspace with another user.
+
+**Endpoint:** `POST /api/shares/workspaces/:workspaceId/shares`
+
+**Requirements:** Must be workspace owner
+
+**Request Body:**
+```json
+{
+  "shareWithUserId": "user_456",
+  "expiresAt": "2025-12-31T23:59:59Z" // Optional
+}
+```
+
+**Response:**
+```json
+{
+  "id": "share_789",
+  "workspaceId": "workspace_123",
+  "ownerId": "user_123",
+  "sharedWithUserId": "user_456",
+  "sharedWithUsername": "jane_doe",
+  "permissionLevel": "view",
+  "createdAt": "2025-06-23T10:00:00Z",
+  "expiresAt": null,
+  "isActive": true
+}
+```
+
+### Revoke Share
+
+Remove a user's access to a shared workspace.
+
+**Endpoint:** `DELETE /api/shares/workspaces/:workspaceId/shares/:userId`
+
+**Requirements:** Must be workspace owner
+
+**Response:** 204 No Content
+
+### List Workspace Shares
+
+Get all active shares for a workspace.
+
+**Endpoint:** `GET /api/shares/workspaces/:workspaceId/shares`
+
+**Requirements:** Must be workspace owner
+
+**Response:**
+```json
+{
+  "shares": [
+    {
+      "id": "share_789",
+      "sharedWith": {
+        "id": "user_456",
+        "username": "jane_doe"
+      },
+      "createdAt": "2025-06-23T10:00:00Z",
+      "expiresAt": null,
+      "lastAccessed": "2025-06-23T11:00:00Z"
+    }
+  ]
+}
+```
+
+### List Shared With Me
+
+Get all workspaces shared with the current user.
+
+**Endpoint:** `GET /api/shares/shared-with-me`
+
+**Response:**
+```json
+{
+  "workspaces": [
+    {
+      "id": "workspace_789",
+      "name": "Project Planning",
+      "ownerId": "user_123",
+      "ownerUsername": "john_doe",
+      "sharedAt": "2025-06-23T10:00:00Z",
+      "lastAccessed": "2025-06-23T11:00:00Z",
+      "expiresAt": null
+    }
+  ]
+}
+```
+
+### Create Share Link
+
+Generate a shareable link for a workspace.
+
+**Endpoint:** `POST /api/shares/workspaces/:workspaceId/share-link`
+
+**Requirements:** Must be workspace owner
+
+**Request Body:**
+```json
+{
+  "requiresLogin": true,  // Default: true
+  "expiresIn": 168       // Hours until expiration (optional)
+}
+```
+
+**Response:**
+```json
+{
+  "id": "link_123",
+  "token": "abc123def456",
+  "link": "https://app.noded.com/shared/abc123def456",
+  "requiresLogin": true,
+  "createdAt": "2025-06-23T10:00:00Z",
+  "expiresAt": "2025-06-30T10:00:00Z"
+}
+```
+
+### Access Share Link
+
+Access a workspace via share link.
+
+**Endpoint:** `GET /api/shares/shared/:token`
+
+**Authentication:** Optional (depends on link settings)
+
+**Response:**
+```json
+{
+  "workspace": {
+    "id": "workspace_123",
+    "name": "My Workspace",
+    "graphData": "...",
+    "canvasState": "...",
+    "isReadOnly": true,
+    "shareInfo": {
+      "type": "link",
+      "owner": "john_doe"
+    }
+  }
+}
+```
+
+## Error Responses
+
+All endpoints return appropriate HTTP status codes:
+
+- `400 Bad Request`: Invalid input or validation error
+- `401 Unauthorized`: Authentication required
+- `403 Forbidden`: Access denied (e.g., not workspace owner)
+- `404 Not Found`: Resource not found
+- `500 Internal Server Error`: Server error
+
+Error response format:
+```json
+{
+  "error": "Human-readable error message"
+}
+```
+
+## Rate Limiting
+
+API endpoints are subject to rate limiting:
+- User search: 30 requests per minute
+- Share operations: 60 requests per minute
+- Share link access: 100 requests per minute
+      ]]></content>
+    </file>
+  </api-documentation>
+
+  <testing>
+    <test-file path="tests/integration/share-api.test.ts">
+      <test-suite name="Share API Integration Tests">
+        <setup><![CDATA[
+let app: Express;
+let testUsers: { owner: any; recipient: any };
+let ownerToken: string;
+let recipientToken: string;
+let testWorkspace: any;
+
+beforeEach(async () => {
+  app = await createTestApp();
+  
+  // Create test users and authenticate
+  testUsers.owner = await createAndAuthenticateUser(app, 'owner_user');
+  testUsers.recipient = await createAndAuthenticateUser(app, 'recipient_user');
+  
+  ownerToken = testUsers.owner.token;
+  recipientToken = testUsers.recipient.token;
+  
+  // Create test workspace
+  const response = await request(app)
+    .post('/api/workspaces')
+    .set('Authorization', `Bearer ${ownerToken}`)
+    .send({ name: 'Test Workspace' });
+    
+  testWorkspace = response.body;
+});
+        ]]></setup>
+
+        <test name="should search for users">
+          <implementation><![CDATA[
+const response = await request(app)
+  .get('/api/shares/users/search')
+  .set('Authorization', `Bearer ${ownerToken}`)
+  .query({ q: 'recipient' });
+
+expect(response.status).toBe(200);
+expect(response.body.users).toHaveLength(1);
+expect(response.body.users[0].username).toBe('recipient_user');
+          ]]></implementation>
+        </test>
+
+        <test name="should share workspace with another user">
+          <implementation><![CDATA[
+const response = await request(app)
+  .post(`/api/shares/workspaces/${testWorkspace.id}/shares`)
+  .set('Authorization', `Bearer ${ownerToken}`)
+  .send({ shareWithUserId: testUsers.recipient.id });
+
+expect(response.status).toBe(201);
+expect(response.body).toMatchObject({
+  workspaceId: testWorkspace.id,
+  sharedWithUserId: testUsers.recipient.id,
+  permissionLevel: 'view'
+});
+          ]]></implementation>
+        </test>
+
+        <test name="recipient should see shared workspace">
+          <implementation><![CDATA[
+// Share workspace first
+await request(app)
+  .post(`/api/shares/workspaces/${testWorkspace.id}/shares`)
+  .set('Authorization', `Bearer ${ownerToken}`)
+  .send({ shareWithUserId: testUsers.recipient.id });
+
+// Check recipient can see it
+const response = await request(app)
+  .get('/api/shares/shared-with-me')
+  .set('Authorization', `Bearer ${recipientToken}`);
+
+expect(response.status).toBe(200);
+expect(response.body.workspaces).toHaveLength(1);
+expect(response.body.workspaces[0]).toMatchObject({
+  id: testWorkspace.id,
+  name: 'Test Workspace',
+  ownerUsername: 'owner_user'
+});
+          ]]></implementation>
+        </test>
+
+        <test name="should create and access share link">
+          <implementation><![CDATA[
+// Create share link
+const createResponse = await request(app)
+  .post(`/api/shares/workspaces/${testWorkspace.id}/share-link`)
+  .set('Authorization', `Bearer ${ownerToken}`)
+  .send({ requiresLogin: false });
+
+expect(createResponse.status).toBe(201);
+const { token } = createResponse.body;
+
+// Access via link without authentication
+const accessResponse = await request(app)
+  .get(`/api/shares/shared/${token}`);
+
+expect(accessResponse.status).toBe(200);
+expect(accessResponse.body.workspace).toMatchObject({
+  id: testWorkspace.id,
+  isReadOnly: true
+});
+          ]]></implementation>
+        </test>
+
+        <test name="should enforce ownership for share operations">
+          <implementation><![CDATA[
+// Try to share someone else's workspace
+const response = await request(app)
+  .post(`/api/shares/workspaces/${testWorkspace.id}/shares`)
+  .set('Authorization', `Bearer ${recipientToken}`)
+  .send({ shareWithUserId: 'some_user_id' });
+
+expect(response.status).toBe(403);
+expect(response.body.error).toBe('Workspace ownership required');
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+  </testing>
+
+  <deliverables>
+    <deliverable type="middleware">
+      <item>ShareAuth middleware for access control</item>
+      <item>Ownership verification middleware</item>
+    </deliverable>
+    
+    <deliverable type="api">
+      <item>Complete share routes implementation</item>
+      <item>User search endpoint</item>
+      <item>Share CRUD operations</item>
+      <item>Share link generation and access</item>
+    </deliverable>
+    
+    <deliverable type="documentation">
+      <item>Comprehensive API documentation</item>
+      <item>Error response documentation</item>
+      <item>Usage examples</item>
+    </deliverable>
+    
+    <deliverable type="testing">
+      <item>Integration tests for all endpoints</item>
+      <item>Security and permission tests</item>
+      <item>Error handling tests</item>
+    </deliverable>
+  </deliverables>
+
+  <success-criteria>
+    <criterion>All API endpoints respond correctly</criterion>
+    <criterion>Authentication and authorization properly enforced</criterion>
+    <criterion>Share links work with and without authentication</criterion>
+    <criterion>Proper error handling and status codes</criterion>
+    <criterion>All integration tests pass</criterion>
+    <criterion>API documentation is complete and accurate</criterion>
+  </success-criteria>
+</phase-implementation>

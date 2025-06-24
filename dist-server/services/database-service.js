@@ -37,6 +37,7 @@ exports.DatabaseService = exports.DatabaseError = void 0;
 const sqlite3_1 = require("sqlite3");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
+const fsPromises = __importStar(require("fs/promises"));
 const logger_1 = require("../utils/logger");
 const errors_1 = require("../types/errors");
 class DatabaseError extends errors_1.BaseError {
@@ -426,6 +427,50 @@ class DatabaseService {
         finally {
             this.logger.logFunctionExit('cleanupExpiredSessions');
         }
+    }
+    async runMigration() {
+        const correlationId = this.logger.generateCorrelationId();
+        try {
+            this.logger.logFunctionEntry('runMigration', {});
+            const migrationPath = path.join(__dirname, '../migrations/001_add_sharing_tables.sql');
+            const migrationSql = await fsPromises.readFile(migrationPath, 'utf-8');
+            // Split migration into individual statements
+            const statements = migrationSql
+                .split(';')
+                .map(s => s.trim())
+                .filter(s => s.length > 0);
+            for (const statement of statements) {
+                await this.runQuery(statement);
+                this.logger.logBusinessLogic('Migration statement executed', {
+                    statementPreview: statement.substring(0, 50) + '...'
+                }, correlationId);
+            }
+            this.logger.logFunctionExit('runMigration', undefined);
+        }
+        catch (error) {
+            this.logger.logError(error, 'runMigration', { correlationId });
+            throw new DatabaseError('Failed to run sharing tables migration', error);
+        }
+    }
+    // Public wrapper methods for share service
+    async run(sql, params = []) {
+        return this.runQuery(sql, params);
+    }
+    async get(sql, params = []) {
+        return this.getQuery(sql, params);
+    }
+    async query(sql, params = []) {
+        return this.allQuery(sql, params);
+    }
+    // Static method to initialize in-memory database for testing
+    static async initialize(dbPath) {
+        const instance = new DatabaseService();
+        if (dbPath) {
+            // Override the default path for testing
+            instance.dbPath = dbPath;
+        }
+        await instance.initialize();
+        return instance;
     }
 }
 exports.DatabaseService = DatabaseService;

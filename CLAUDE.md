@@ -6,7 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes. Each node contains multiple blocks (prompt, response, markdown) and represents a conversation state, with child nodes representing edits or variations creating a guaranteed tree structure with DOM-based rendering.
 
-**Major Updates (2025-06-23):**
+**Major Updates (2025-06-24):**
+- **Workspace Sharing**: Complete sharing system with direct user shares and shareable links
+- **Read-Only Mode**: Shared workspaces open in read-only mode with visual indicators
+- **Share Management UI**: Intuitive dialog for managing shares, revoking access, and viewing activity
+- **Enhanced Error Handling**: User-friendly error messages for all sharing operations
+- **Security Features**: Proper access control, session validation, and share expiration
+
+**Previous Updates (2025-06-23):**
 - **User Authentication System**: Full login/register system with SQLite database
 - **Workspace Management**: Multi-workspace support with sidebar file explorer
 - **Gemini API Integration**: Real-time streaming AI responses with proper API key configuration
@@ -131,6 +138,18 @@ If port 8000 is in use locally:
 - Create, rename, delete workspace operations
 - Visual indication of active workspace
 - Logout button with confirmation dialog
+- Shared workspaces section with visual indicators
+
+**Workspace Sharing System**:
+- **Share Dialog** (`src/components/share-dialog.ts`): Complete UI for managing shares
+- **Share API** (`server-src/routes/share-routes.ts`): RESTful endpoints for sharing operations
+- **Share Service** (`server-src/services/share-service.ts`): Business logic for share management
+- **Share Error Handler** (`src/utils/share-error-handler.ts`): User-friendly error messages
+- **Shared Workspace Indicator** (`src/components/shared-workspace-indicator.ts`): Visual feedback for shared workspaces
+- Direct sharing with specific users by username
+- Shareable link generation with optional expiration
+- Read-only mode enforcement for shared workspaces
+- Activity tracking and access logging
 
 ### Core Design Principles
 

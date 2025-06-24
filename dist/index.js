@@ -11,7 +11,32 @@ import { ErrorFactory } from './types/errors.js';
 import { LoginComponent } from './components/login-component.js';
 import { SessionManager } from './services/session-manager.js';
 import { WorkspaceSidebar } from './components/workspace-sidebar.js';
+import { SharedWorkspaceIndicator } from './components/shared-workspace-indicator.js';
 import './utils/debug-helper.js'; // Initializes window.debug
+/**
+ * Check URL parameters for shared workspace access
+ *
+ * @returns Shared workspace ID from URL if present
+ * @private
+ */
+function getSharedWorkspaceFromUrl() {
+    const logger = new Logger('Application');
+    logger.logFunctionEntry('getSharedWorkspaceFromUrl');
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const sharedWorkspaceId = urlParams.get('shared');
+        logger.logBranch('getSharedWorkspaceFromUrl', 'hasSharedParam', !!sharedWorkspaceId, {
+            sharedWorkspaceId,
+            fullUrl: window.location.href
+        });
+        logger.logFunctionExit('getSharedWorkspaceFromUrl', { sharedWorkspaceId });
+        return sharedWorkspaceId;
+    }
+    catch (error) {
+        logger.logError(error, 'getSharedWorkspaceFromUrl');
+        return null;
+    }
+}
 /**
  * Initialize authentication and then the graph editor
  *
@@ -65,40 +90,76 @@ async function initializeEditor(session) {
         // Initialize workspace sidebar
         const workspaceSidebar = WorkspaceSidebar.getInstance();
         let currentWorkspaceId = null;
+        let sharedWorkspaceIndicator = null;
         // Function to load a workspace
-        const loadWorkspace = async (workspaceId) => {
+        const loadWorkspace = async (workspaceId, isShared = false) => {
             var _a;
             try {
-                const response = await sessionManager.makeAuthenticatedRequest(`/api/workspaces/${workspaceId}`);
+                const endpoint = isShared ? `/api/shares/${workspaceId}/workspace` : `/api/workspaces/${workspaceId}`;
+                const response = await sessionManager.makeAuthenticatedRequest(endpoint);
                 if (response.ok) {
-                    const workspace = await response.json();
+                    const data = await response.json();
+                    const workspace = isShared ? data.workspace : data;
                     await editor.importUserData(workspace.graphData || [], workspace.canvasState);
                     currentWorkspaceId = workspaceId;
-                    logger.info('Workspace loaded successfully', { workspaceId, nodeCount: ((_a = workspace.graphData) === null || _a === void 0 ? void 0 : _a.length) || 0 });
+                    // Show shared workspace indicator if this is a shared workspace
+                    if (isShared && data.owner) {
+                        if (sharedWorkspaceIndicator) {
+                            sharedWorkspaceIndicator.destroy();
+                        }
+                        sharedWorkspaceIndicator = new SharedWorkspaceIndicator({
+                            type: 'link',
+                            owner: data.owner.username,
+                            onClose: () => {
+                                sharedWorkspaceIndicator = null;
+                                // Load default workspace when closing shared view
+                                loadDefaultWorkspace();
+                            }
+                        });
+                    }
+                    logger.info('Workspace loaded successfully', {
+                        workspaceId,
+                        isShared,
+                        nodeCount: ((_a = workspace.graphData) === null || _a === void 0 ? void 0 : _a.length) || 0
+                    });
                 }
             }
             catch (error) {
                 logger.logError(error, 'loadWorkspace');
+                if (isShared) {
+                    alert('Failed to load shared workspace. You may not have access or the link has expired.');
+                }
+            }
+        };
+        // Helper function to load default workspace
+        const loadDefaultWorkspace = async () => {
+            try {
+                const response = await sessionManager.makeAuthenticatedRequest('/api/workspaces/default/get-or-create');
+                if (response.ok) {
+                    const workspace = await response.json();
+                    currentWorkspaceId = workspace.id;
+                    workspaceSidebar.setCurrentWorkspace(workspace.id);
+                    if (workspace.graphData && workspace.graphData.length > 0) {
+                        await editor.importUserData(workspace.graphData, workspace.canvasState);
+                        logger.info('Default workspace loaded successfully', { nodeCount: workspace.graphData.length });
+                    }
+                }
+            }
+            catch (error) {
+                logger.logError(error, 'loadDefaultWorkspace');
             }
         };
         // Initialize sidebar with workspace change handler
-        workspaceSidebar.initialize(document.body, editor, loadWorkspace);
-        // Load default workspace
-        try {
-            const response = await sessionManager.makeAuthenticatedRequest('/api/workspaces/default/get-or-create');
-            if (response.ok) {
-                const workspace = await response.json();
-                currentWorkspaceId = workspace.id;
-                workspaceSidebar.setCurrentWorkspace(workspace.id);
-                if (workspace.graphData && workspace.graphData.length > 0) {
-                    await editor.importUserData(workspace.graphData, workspace.canvasState);
-                    logger.info('Default workspace loaded successfully', { nodeCount: workspace.graphData.length });
-                }
-            }
+        workspaceSidebar.initialize(document.body, editor, (workspaceId) => loadWorkspace(workspaceId, false));
+        // Check for shared workspace in URL
+        const sharedWorkspaceId = getSharedWorkspaceFromUrl();
+        if (sharedWorkspaceId) {
+            logger.info('Loading shared workspace from URL', { sharedWorkspaceId });
+            await loadWorkspace(sharedWorkspaceId, true);
         }
-        catch (error) {
-            logger.logError(error, 'loadDefaultWorkspace');
-            // Continue with empty editor
+        else {
+            // Load default workspace
+            await loadDefaultWorkspace();
         }
         // Create and initialize ChatInterface
         const editorContainer = document.querySelector('.editor-container');
@@ -132,6 +193,63 @@ async function initializeEditor(session) {
         });
         // Set up global button handlers with comprehensive error handling
         setupGlobalEventHandlers(editor, logger, errorFactory);
+        // Set up custom event listener for loading shared workspaces
+        window.addEventListener('loadSharedWorkspace', async (event) => {
+            try {
+                const { workspaceId } = event.detail;
+                logger.logUserInteraction('load_shared_workspace_event', 'custom_event', { workspaceId });
+                if (!workspaceId) {
+                    logger.warn('loadSharedWorkspace event received without workspaceId');
+                    return;
+                }
+                // Clean up existing shared workspace indicator if any
+                if (sharedWorkspaceIndicator) {
+                    sharedWorkspaceIndicator.destroy();
+                    sharedWorkspaceIndicator = null;
+                }
+                // Load the shared workspace
+                await loadWorkspace(workspaceId, true);
+                logger.info('Shared workspace loaded via custom event', { workspaceId });
+            }
+            catch (error) {
+                logger.logError(error, 'loadSharedWorkspaceEvent');
+                handleUserFacingError(error, 'Failed to load shared workspace');
+            }
+        });
+        // Handle browser navigation (back/forward) with shared workspace URLs
+        window.addEventListener('popstate', async () => {
+            try {
+                logger.logUserInteraction('browser_navigation', 'popstate');
+                const newSharedWorkspaceId = getSharedWorkspaceFromUrl();
+                const currentIsShared = !!sharedWorkspaceIndicator;
+                logger.logBranch('popstate', 'workspaceChanged', newSharedWorkspaceId !== (currentIsShared ? currentWorkspaceId : null), {
+                    newSharedWorkspaceId,
+                    currentWorkspaceId,
+                    currentIsShared
+                });
+                if (newSharedWorkspaceId && newSharedWorkspaceId !== currentWorkspaceId) {
+                    // Load the new shared workspace
+                    if (sharedWorkspaceIndicator) {
+                        sharedWorkspaceIndicator.destroy();
+                        sharedWorkspaceIndicator = null;
+                    }
+                    await loadWorkspace(newSharedWorkspaceId, true);
+                }
+                else if (!newSharedWorkspaceId && currentIsShared) {
+                    // Navigated away from shared workspace, load default
+                    if (sharedWorkspaceIndicator) {
+                        sharedWorkspaceIndicator.destroy();
+                        sharedWorkspaceIndicator = null;
+                    }
+                    await loadDefaultWorkspace();
+                }
+                logger.info('Browser navigation handled', { newSharedWorkspaceId });
+            }
+            catch (error) {
+                logger.logError(error, 'popstateHandler');
+                handleUserFacingError(error, 'Failed to handle navigation');
+            }
+        });
         const executionTime = performance.now() - startTime;
         logger.logPerformance('initializeEditor', 'app_initialization', executionTime);
         logger.logFunctionExit('initializeEditor', { success: true }, executionTime);

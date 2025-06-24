@@ -72,6 +72,10 @@ export class GraphEditor {
   private lastPanX: number = 0;
   private lastPanY: number = 0;
   
+  // Read-only mode properties
+  private isReadOnly: boolean = false;
+  private shareInfo: { type: 'direct' | 'link'; owner: string } | null = null;
+  
   private readonly chatConfig: InlineChatConfig = {
     maxLength: 2000,
     debounceMs: 300,
@@ -92,6 +96,65 @@ export class GraphEditor {
    */
   public setChatInterface(chatInterface: any): void {
     this.chatInterface = chatInterface;
+  }
+
+  /**
+   * Enable or disable read-only mode
+   * 
+   * @param readOnly - Whether to enable read-only mode
+   * @param shareInfo - Optional share information (type and owner)
+   */
+  public setReadOnlyMode(
+    readOnly: boolean, 
+    shareInfo?: { type: 'direct' | 'link'; owner: string }
+  ): void {
+    this.logger.logFunctionEntry('setReadOnlyMode', { readOnly, shareInfo });
+    
+    this.isReadOnly = readOnly;
+    this.shareInfo = shareInfo || null;
+    
+    if (readOnly) {
+      // Add read-only class to canvas
+      this.canvas?.classList.add('read-only');
+      
+      // Show read-only indicator
+      this.showReadOnlyIndicator();
+      
+      // Disable all interactive elements
+      this.disableEditingControls();
+      
+      // Update existing nodes to be read-only
+      this.nodes.forEach(node => {
+        this.updateNodeReadOnlyState(node.id);
+      });
+      
+    } else {
+      // Remove read-only mode
+      this.canvas?.classList.remove('read-only');
+      this.hideReadOnlyIndicator();
+      this.enableEditingControls();
+      
+      // Update existing nodes to be editable
+      this.nodes.forEach(node => {
+        this.updateNodeEditableState(node.id);
+      });
+    }
+    
+    this.logger.logInfo('Read-only mode updated', 'setReadOnlyMode', {
+      isReadOnly: this.isReadOnly,
+      shareType: shareInfo?.type
+    });
+    
+    this.logger.logFunctionExit('setReadOnlyMode', undefined);
+  }
+
+  /**
+   * Get current read-only state
+   * 
+   * @returns Whether the editor is in read-only mode
+   */
+  public getIsReadOnly(): boolean {
+    return this.isReadOnly;
   }
 
   /**
@@ -196,6 +259,12 @@ export class GraphEditor {
           clientY: e.clientY
         });
 
+        // Check if in read-only mode
+        if (this.isReadOnly) {
+          this.logger.logInfo('Canvas panning prevented in read-only mode', 'setupEventListeners');
+          return;
+        }
+
         const isBackgroundClick = e.target === this.canvas || e.target === this.canvasContent;
         this.logger.logBranch('setupEventListeners', 'isBackgroundClick', isBackgroundClick);
 
@@ -222,10 +291,11 @@ export class GraphEditor {
           isDragging: this.isDragging
         });
 
-        const shouldPan = this.isPanning && !this.isDragging;
+        const shouldPan = this.isPanning && !this.isDragging && !this.isReadOnly;
         this.logger.logBranch('setupEventListeners', 'shouldPan', shouldPan, {
           isPanning: this.isPanning,
-          isDragging: this.isDragging
+          isDragging: this.isDragging,
+          isReadOnly: this.isReadOnly
         });
 
         if (shouldPan) {
@@ -816,6 +886,32 @@ export class GraphEditor {
         this.setupNodeResizing(nodeEl, node);
         this.setupNodeRenaming(nodeEl, node);
         this.canvasContent.appendChild(nodeEl);
+        
+        // Apply read-only mode if enabled
+        if (this.isReadOnly) {
+          // Add read-only class to node element
+          nodeEl.classList.add('read-only');
+          
+          // Hide all action buttons
+          const actionButtons = nodeEl.querySelectorAll(
+            '.add-child-button, .add-markdown-button, .delete-button, .submit-button'
+          );
+          actionButtons.forEach(button => {
+            (button as HTMLElement).style.display = 'none';
+          });
+          
+          // Disable node header editing
+          const nodeNameSpan = nodeEl.querySelector('.node-name');
+          if (nodeNameSpan) {
+            nodeNameSpan.removeAttribute('contenteditable');
+          }
+          
+          // Disable resize handles
+          const resizeHandles = nodeEl.querySelectorAll('.resize-handle, .block-resize-handle');
+          resizeHandles.forEach(handle => {
+            (handle as HTMLElement).style.display = 'none';
+          });
+        }
       } catch (domError) {
         this.logger.logError(domError as Error, 'renderNode.domOperations', {
           nodeId: node.id,
@@ -1062,6 +1158,14 @@ export class GraphEditor {
 
       nodeEl.addEventListener('mousedown', (e: MouseEvent) => {
         try {
+          // Check if in read-only mode
+          if (this.isReadOnly) {
+            this.logger.logInfo('Node dragging prevented in read-only mode', 'setupNodeDragging', {
+              nodeId: node.id
+            });
+            return;
+          }
+
           const target = e.target as HTMLElement;
           const isInteractiveElement = target.closest('.btn') || target.closest('textarea');
           
@@ -1094,6 +1198,16 @@ export class GraphEditor {
 
       document.addEventListener('mousemove', (e: MouseEvent) => {
         if (!isDragging) return;
+        
+        // Also check read-only mode during dragging
+        if (this.isReadOnly) {
+          isDragging = false;
+          this.isDragging = false;
+          this.logger.logInfo('Node dragging stopped due to read-only mode', 'setupNodeDragging', {
+            nodeId: node.id
+          });
+          return;
+        }
         
         try {
           const deltaX = (e.clientX - startX) / this.scale;
@@ -1465,11 +1579,11 @@ export class GraphEditor {
    * 
    * @param parentId - ID of the parent node
    * @param isEmpty - Whether to create an empty node without default content
-   * @returns The ID of the newly created child node
+   * @returns The newly created child GraphNode object
    * @throws {ValidationError} When parentId is invalid
    * @throws {TreeStructureError} When parent doesn't exist
    */
-  public addChild(parentId: string, isEmpty: boolean = false): string {
+  public addChild(parentId: string, isEmpty: boolean = false): GraphNode {
     const startTime = performance.now();
     this.logger.logFunctionEntry('addChild', { parentId });
 
@@ -1498,6 +1612,11 @@ export class GraphEditor {
         // Response will be auto-generated after LLM submission
       ]);
       
+      const childNode = this.nodes.get(childId);
+      if (!childNode) {
+        throw new Error('Failed to retrieve created child node');
+      }
+      
       this.logger.logInfo('Child node created successfully', 'addChild', { 
         parentId, 
         childId,
@@ -1513,7 +1632,7 @@ export class GraphEditor {
       
       this.emitGraphChanged();
       
-      return childId;
+      return childNode;
       
     } catch (error) {
       this.logger.logError(error as Error, 'addChild', { parentId });
@@ -1999,6 +2118,203 @@ export class GraphEditor {
     } catch (error) {
       this.logger.logError(error as Error, 'hideLoadingIndicator', { nodeId });
     }
+  }
+
+  /**
+   * Display read-only mode indicator
+   * 
+   * @private
+   */
+  private showReadOnlyIndicator(): void {
+    this.logger.logFunctionEntry('showReadOnlyIndicator', {});
+    
+    // Remove existing indicator if any
+    this.hideReadOnlyIndicator();
+    
+    // Create indicator element
+    const indicator = document.createElement('div');
+    indicator.className = 'read-only-indicator';
+    indicator.innerHTML = `
+      <div class="read-only-banner">
+        <svg class="read-only-icon" width="16" height="16" viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        </svg>
+        <span class="read-only-text">
+          View-only mode
+          ${this.shareInfo ? ` · Shared by ${this.shareInfo.owner}` : ''}
+        </span>
+      </div>
+    `;
+    
+    // Add to canvas container
+    const canvasContainer = this.canvas?.parentElement;
+    if (canvasContainer) {
+      canvasContainer.insertBefore(indicator, canvasContainer.firstChild);
+    }
+    
+    this.logger.logInfo('Read-only indicator displayed', 'showReadOnlyIndicator', {
+      shareInfo: this.shareInfo
+    });
+    
+    this.logger.logFunctionExit('showReadOnlyIndicator', undefined);
+  }
+
+  /**
+   * Hide read-only mode indicator
+   * 
+   * @private
+   */
+  private hideReadOnlyIndicator(): void {
+    const indicator = document.querySelector('.read-only-indicator');
+    indicator?.remove();
+  }
+
+  /**
+   * Disable all editing controls in read-only mode
+   * 
+   * @private
+   */
+  private disableEditingControls(): void {
+    this.logger.logFunctionEntry('disableEditingControls', {});
+    
+    // Hide control buttons
+    const controlButtons = document.querySelectorAll(
+      '.add-root-button, .auto-layout-button, .export-button'
+    );
+    controlButtons.forEach(button => {
+      (button as HTMLElement).style.display = 'none';
+    });
+    
+    // Disable canvas interactions
+    if (this.canvas) {
+      // Remove drag and drop event listeners
+      this.canvas.style.pointerEvents = 'none';
+      this.canvasContent.style.pointerEvents = 'auto';
+    }
+    
+    // Update cursor
+    if (this.canvasContent) {
+      this.canvasContent.style.cursor = 'default';
+    }
+    
+    this.logger.logInfo('Editing controls disabled', 'disableEditingControls');
+    this.logger.logFunctionExit('disableEditingControls', undefined);
+  }
+
+  /**
+   * Re-enable editing controls
+   * 
+   * @private
+   */
+  private enableEditingControls(): void {
+    this.logger.logFunctionEntry('enableEditingControls', {});
+    
+    // Show control buttons
+    const controlButtons = document.querySelectorAll(
+      '.add-root-button, .auto-layout-button, .export-button'
+    );
+    controlButtons.forEach(button => {
+      (button as HTMLElement).style.display = '';
+    });
+    
+    // Enable canvas interactions
+    if (this.canvas) {
+      this.canvas.style.pointerEvents = 'auto';
+    }
+    
+    // Restore cursor
+    if (this.canvasContent) {
+      this.canvasContent.style.cursor = 'grab';
+    }
+    
+    this.logger.logInfo('Editing controls enabled', 'enableEditingControls');
+    this.logger.logFunctionExit('enableEditingControls', undefined);
+  }
+
+  /**
+   * Update a specific node to be read-only
+   * 
+   * @param nodeId - ID of the node to update
+   * @private
+   */
+  private updateNodeReadOnlyState(nodeId: string): void {
+    this.logger.logFunctionEntry('updateNodeReadOnlyState', { nodeId });
+    
+    const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!nodeElement) {
+      return;
+    }
+    
+    // Add read-only class
+    nodeElement.classList.add('read-only');
+    
+    // Disable all interactive elements
+    const interactiveElements = nodeElement.querySelectorAll(
+      'button, textarea, input, .add-child-button, .add-markdown-button, ' +
+      '.delete-button, .submit-button, .resize-handle, .block-resize-handle'
+    );
+    
+    interactiveElements.forEach(element => {
+      if (element instanceof HTMLElement) {
+        element.style.display = 'none';
+      } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        element.readOnly = true;
+        element.disabled = true;
+      }
+    });
+    
+    // Disable dragging
+    const nodeHeader = nodeElement.querySelector('.node-header');
+    if (nodeHeader instanceof HTMLElement) {
+      nodeHeader.style.cursor = 'default';
+      nodeHeader.classList.add('no-drag');
+    }
+    
+    this.logger.logInfo('Node updated to read-only', 'updateNodeReadOnlyState', { nodeId });
+    this.logger.logFunctionExit('updateNodeReadOnlyState', undefined);
+  }
+
+  /**
+   * Update a specific node to be editable
+   * 
+   * @param nodeId - ID of the node to update
+   * @private
+   */
+  private updateNodeEditableState(nodeId: string): void {
+    this.logger.logFunctionEntry('updateNodeEditableState', { nodeId });
+    
+    const nodeElement = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!nodeElement) {
+      return;
+    }
+    
+    // Remove read-only class
+    nodeElement.classList.remove('read-only');
+    
+    // Re-enable interactive elements
+    const interactiveElements = nodeElement.querySelectorAll(
+      'button, textarea, input, .add-child-button, .add-markdown-button, ' +
+      '.delete-button, .submit-button, .resize-handle, .block-resize-handle'
+    );
+    
+    interactiveElements.forEach(element => {
+      if (element instanceof HTMLElement) {
+        element.style.display = '';
+      } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+        element.readOnly = false;
+        element.disabled = false;
+      }
+    });
+    
+    // Enable dragging
+    const nodeHeader = nodeElement.querySelector('.node-header');
+    if (nodeHeader instanceof HTMLElement) {
+      nodeHeader.style.cursor = 'move';
+      nodeHeader.classList.remove('no-drag');
+    }
+    
+    this.logger.logInfo('Node updated to editable', 'updateNodeEditableState', { nodeId });
+    this.logger.logFunctionExit('updateNodeEditableState', undefined);
   }
 
   /**
@@ -2809,9 +3125,10 @@ export class GraphEditor {
   /**
    * Add a new root node to the graph
    * 
+   * @returns The created GraphNode object
    * @throws {NodeEditorError} When root node creation fails
    */
-  public addRootNode(): void {
+  public addRootNode(): GraphNode {
     const startTime = performance.now();
     this.logger.logFunctionEntry('addRootNode');
     
@@ -2823,6 +3140,11 @@ export class GraphEditor {
         { id: `root_${Date.now()}_prompt`, type: 'prompt', content: '', position: 0 }
         // Empty prompt - will be populated when user submits via chat
       ]);
+      
+      const rootNode = this.nodes.get(rootId);
+      if (!rootNode) {
+        throw new Error('Failed to retrieve created root node');
+      }
       
       this.logger.logInfo('Root node created successfully', 'addRootNode', {
         rootId,
@@ -2842,6 +3164,8 @@ export class GraphEditor {
       this.logger.logFunctionExit('addRootNode', { rootId }, executionTime);
       
       this.emitGraphChanged();
+      
+      return rootNode;
       
     } catch (error) {
       this.logger.logError(error as Error, 'addRootNode');
@@ -3494,6 +3818,14 @@ export class GraphEditor {
         e.preventDefault();
         e.stopPropagation();
         
+        // Check if in read-only mode
+        if (this.isReadOnly) {
+          this.logger.logInfo('Node resizing prevented in read-only mode', 'setupNodeResizing', {
+            nodeId: node.id
+          });
+          return;
+        }
+        
         isResizing = true;
         startX = e.clientX;
         startY = e.clientY;
@@ -3505,6 +3837,15 @@ export class GraphEditor {
 
       const handleMouseMove = (e: MouseEvent) => {
         if (!isResizing) return;
+        
+        // Also check read-only mode during resizing
+        if (this.isReadOnly) {
+          isResizing = false;
+          this.logger.logInfo('Node resizing stopped due to read-only mode', 'setupNodeResizing', {
+            nodeId: node.id
+          });
+          return;
+        }
         
         const deltaX = e.clientX - startX;
         const deltaY = e.clientY - startY;
@@ -3634,6 +3975,12 @@ export class GraphEditor {
           e.preventDefault();
           e.stopPropagation();
           
+          // Check if in read-only mode
+          if (this.isReadOnly) {
+            this.logger.logInfo('Block resizing prevented in read-only mode', 'setupBlockResizing');
+            return;
+          }
+          
           isResizing = true;
           startY = mouseEvent.clientY;
           
@@ -3650,6 +3997,13 @@ export class GraphEditor {
         
         const handleMouseMove = (e: MouseEvent) => {
           if (!isResizing || !textarea) return;
+          
+          // Also check read-only mode during resizing
+          if (this.isReadOnly) {
+            isResizing = false;
+            this.logger.logInfo('Block resizing stopped due to read-only mode', 'setupBlockResizing');
+            return;
+          }
           
           const deltaY = e.clientY - startY;
           const newHeight = Math.max(60, Math.min(400, startHeight + deltaY));

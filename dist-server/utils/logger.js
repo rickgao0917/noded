@@ -50,5 +50,11 @@ class Logger {
     logFatal(message, functionName, additionalContext) {
         console.error(`[${this.context}] ${functionName} - FATAL: ${message}`, additionalContext || '');
     }
+    generateCorrelationId() {
+        return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+    logBusinessLogic(message, additionalContext, correlationId) {
+        console.log(`[${this.context}] Business Logic: ${message}`, Object.assign(Object.assign({}, additionalContext), { correlationId }));
+    }
 }
 exports.Logger = Logger;

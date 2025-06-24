@@ -1,0 +1,1356 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phase-implementation>
+  <metadata>
+    <phase-number>3</phase-number>
+    <phase-name>Frontend Share Management</phase-name>
+    <estimated-duration>3-4 days</estimated-duration>
+    <dependencies>
+      <dependency>Phase 2 - API endpoints implementation</dependency>
+      <dependency>Existing UI component architecture</dependency>
+      <dependency>Session management system</dependency>
+    </dependencies>
+  </metadata>
+
+  <objectives>
+    <objective priority="1">Create ShareDialog component for managing shares</objective>
+    <objective priority="2">Implement user search UI with debouncing</objective>
+    <objective priority="3">Build share list management interface</objective>
+    <objective priority="4">Add share link generation UI</objective>
+    <objective priority="5">Create activity log viewer</objective>
+  </objectives>
+
+  <share-dialog-component>
+    <file path="src/components/share-dialog.ts">
+      <imports><![CDATA[
+import { Logger } from '../utils/logger';
+import { SessionManager } from '../services/session-manager';
+import { ErrorFactory } from '../types/errors';
+
+interface ShareDialogConfig {
+  workspaceId: string;
+  workspaceName: string;
+  onClose: () => void;
+}
+
+interface UserSearchResult {
+  id: string;
+  username: string;
+}
+
+interface Share {
+  id: string;
+  sharedWith: {
+    id: string;
+    username: string;
+  };
+  createdAt: string;
+  expiresAt?: string;
+  lastAccessed?: string;
+}
+
+interface ShareLink {
+  id: string;
+  token: string;
+  link: string;
+  requiresLogin: boolean;
+  createdAt: string;
+  expiresAt?: string;
+  accessCount: number;
+}
+
+interface ShareActivity {
+  id: string;
+  action: string;
+  user?: { id: string; username: string };
+  createdAt: string;
+}
+      ]]></imports>
+
+      <class name="ShareDialog">
+        <properties><![CDATA[
+private readonly logger: Logger;
+private readonly sessionManager: SessionManager;
+private readonly config: ShareDialogConfig;
+private dialogElement: HTMLElement | null = null;
+private searchDebounceTimer: NodeJS.Timeout | null = null;
+private currentTab: 'direct' | 'link' | 'activity' = 'direct';
+private shares: Share[] = [];
+private shareLinks: ShareLink[] = [];
+private activities: ShareActivity[] = [];
+        ]]></properties>
+
+        <constructor><![CDATA[
+constructor(config: ShareDialogConfig) {
+  this.logger = new Logger('ShareDialog', 'ui');
+  this.sessionManager = SessionManager.getInstance();
+  this.config = config;
+  
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('constructor', { config }, correlationId);
+  
+  this.render();
+  this.attachEventListeners();
+  this.loadInitialData();
+  
+  this.logger.logFunctionExit('constructor', undefined, correlationId);
+}
+        ]]></constructor>
+
+        <method name="render">
+          <description>Render the share dialog HTML</description>
+          <implementation><![CDATA[
+private render(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('render', {}, correlationId);
+  
+  // Create dialog container
+  this.dialogElement = document.createElement('div');
+  this.dialogElement.className = 'share-dialog-overlay';
+  this.dialogElement.innerHTML = `
+    <div class="share-dialog">
+      <div class="share-dialog-header">
+        <h2>Share "${this.config.workspaceName}"</h2>
+        <button class="close-button" aria-label="Close">×</button>
+      </div>
+      
+      <div class="share-dialog-tabs">
+        <button class="tab-button active" data-tab="direct">Direct Shares</button>
+        <button class="tab-button" data-tab="link">Link Sharing</button>
+        <button class="tab-button" data-tab="activity">Activity</button>
+      </div>
+      
+      <div class="share-dialog-content">
+        <!-- Direct Shares Tab -->
+        <div class="tab-content active" data-tab-content="direct">
+          <div class="user-search-section">
+            <h3>Share with users</h3>
+            <div class="search-container">
+              <input 
+                type="text" 
+                class="user-search-input" 
+                placeholder="Search users by username..."
+                autocomplete="off"
+              />
+              <div class="search-results"></div>
+            </div>
+          </div>
+          
+          <div class="current-shares-section">
+            <h3>Current shares</h3>
+            <div class="shares-list">
+              <div class="loading">Loading shares...</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Link Sharing Tab -->
+        <div class="tab-content" data-tab-content="link">
+          <div class="link-options">
+            <h3>Create shareable link</h3>
+            <label class="checkbox-label">
+              <input type="checkbox" class="require-login-checkbox" checked />
+              Require login to view
+            </label>
+            <div class="expiration-select-container">
+              <label>Link expires:</label>
+              <select class="expiration-select">
+                <option value="">Never</option>
+                <option value="1">1 hour</option>
+                <option value="24">1 day</option>
+                <option value="168">1 week</option>
+                <option value="720">1 month</option>
+              </select>
+            </div>
+            <button class="generate-link-button">Generate Link</button>
+          </div>
+          
+          <div class="active-links-section">
+            <h3>Active links</h3>
+            <div class="links-list">
+              <div class="loading">Loading links...</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Activity Tab -->
+        <div class="tab-content" data-tab-content="activity">
+          <h3>Recent activity</h3>
+          <div class="activity-list">
+            <div class="loading">Loading activity...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Add styles
+  this.addStyles();
+  
+  // Append to body
+  document.body.appendChild(this.dialogElement);
+  
+  this.logger.logBusinessLogic('Share dialog rendered', {
+    workspaceId: this.config.workspaceId
+  }, correlationId);
+  
+  this.logger.logFunctionExit('render', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="addStyles">
+          <description>Add CSS styles for the dialog</description>
+          <implementation><![CDATA[
+private addStyles(): void {
+  const styleId = 'share-dialog-styles';
+  
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      .share-dialog-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      }
+      
+      .share-dialog {
+        background: white;
+        border-radius: 8px;
+        width: 600px;
+        max-width: 90vw;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+      }
+      
+      .share-dialog-header {
+        padding: 20px;
+        border-bottom: 1px solid #e0e0e0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .share-dialog-header h2 {
+        margin: 0;
+        font-size: 20px;
+        color: #333;
+      }
+      
+      .close-button {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #666;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+      }
+      
+      .close-button:hover {
+        background-color: #f0f0f0;
+      }
+      
+      .share-dialog-tabs {
+        display: flex;
+        border-bottom: 1px solid #e0e0e0;
+        padding: 0 20px;
+      }
+      
+      .tab-button {
+        background: none;
+        border: none;
+        padding: 12px 20px;
+        cursor: pointer;
+        color: #666;
+        font-size: 14px;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+      }
+      
+      .tab-button:hover {
+        color: #333;
+      }
+      
+      .tab-button.active {
+        color: #2196F3;
+        border-bottom-color: #2196F3;
+      }
+      
+      .share-dialog-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+      }
+      
+      .tab-content {
+        display: none;
+      }
+      
+      .tab-content.active {
+        display: block;
+      }
+      
+      .user-search-section h3,
+      .current-shares-section h3,
+      .link-options h3,
+      .active-links-section h3 {
+        margin: 0 0 15px 0;
+        font-size: 16px;
+        color: #333;
+      }
+      
+      .search-container {
+        position: relative;
+        margin-bottom: 30px;
+      }
+      
+      .user-search-input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      
+      .user-search-input:focus {
+        outline: none;
+        border-color: #2196F3;
+      }
+      
+      .search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-top: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+        display: none;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      
+      .search-results.visible {
+        display: block;
+      }
+      
+      .search-result-item {
+        padding: 10px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .search-result-item:hover {
+        background-color: #f5f5f5;
+      }
+      
+      .share-button {
+        background: #2196F3;
+        color: white;
+        border: none;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      
+      .share-button:hover {
+        background: #1976D2;
+      }
+      
+      .shares-list,
+      .links-list,
+      .activity-list {
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        min-height: 150px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      
+      .share-item,
+      .link-item,
+      .activity-item {
+        padding: 12px;
+        border-bottom: 1px solid #f0f0f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      
+      .share-item:last-child,
+      .link-item:last-child,
+      .activity-item:last-child {
+        border-bottom: none;
+      }
+      
+      .share-info,
+      .link-info {
+        flex: 1;
+      }
+      
+      .share-username,
+      .link-url {
+        font-weight: 500;
+        color: #333;
+        margin-bottom: 4px;
+      }
+      
+      .share-date,
+      .link-date,
+      .activity-date {
+        font-size: 12px;
+        color: #666;
+      }
+      
+      .revoke-button {
+        background: #f44336;
+        color: white;
+        border: none;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      
+      .revoke-button:hover {
+        background: #d32f2f;
+      }
+      
+      .copy-button {
+        background: #4CAF50;
+        color: white;
+        border: none;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        margin-right: 8px;
+      }
+      
+      .copy-button:hover {
+        background: #45a049;
+      }
+      
+      .copy-button.copied {
+        background: #666;
+      }
+      
+      .link-options {
+        margin-bottom: 30px;
+      }
+      
+      .checkbox-label {
+        display: flex;
+        align-items: center;
+        margin: 15px 0;
+        cursor: pointer;
+      }
+      
+      .checkbox-label input {
+        margin-right: 8px;
+      }
+      
+      .expiration-select-container {
+        margin: 15px 0;
+      }
+      
+      .expiration-select-container label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 14px;
+        color: #666;
+      }
+      
+      .expiration-select {
+        width: 200px;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      
+      .generate-link-button {
+        background: #4CAF50;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        margin-top: 10px;
+      }
+      
+      .generate-link-button:hover {
+        background: #45a049;
+      }
+      
+      .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+      }
+      
+      .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+      }
+      
+      .error-message {
+        color: #f44336;
+        padding: 10px;
+        text-align: center;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+        ]]></implementation>
+        </method>
+
+        <method name="attachEventListeners">
+          <description>Attach event listeners to dialog elements</description>
+          <implementation><![CDATA[
+private attachEventListeners(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('attachEventListeners', {}, correlationId);
+  
+  if (!this.dialogElement) {
+    return;
+  }
+  
+  // Close button
+  const closeButton = this.dialogElement.querySelector('.close-button');
+  closeButton?.addEventListener('click', () => this.close());
+  
+  // Click outside to close
+  this.dialogElement.addEventListener('click', (event) => {
+    if (event.target === this.dialogElement) {
+      this.close();
+    }
+  });
+  
+  // Tab switching
+  const tabButtons = this.dialogElement.querySelectorAll('.tab-button');
+  tabButtons.forEach(button => {
+    button.addEventListener('click', (event) => {
+      const tab = (event.target as HTMLElement).dataset.tab as 'direct' | 'link' | 'activity';
+      this.switchTab(tab);
+    });
+  });
+  
+  // User search
+  const searchInput = this.dialogElement.querySelector('.user-search-input') as HTMLInputElement;
+  searchInput?.addEventListener('input', (event) => {
+    this.handleUserSearch((event.target as HTMLInputElement).value);
+  });
+  
+  // Generate link button
+  const generateButton = this.dialogElement.querySelector('.generate-link-button');
+  generateButton?.addEventListener('click', () => this.generateShareLink());
+  
+  this.logger.logBusinessLogic('Event listeners attached', {}, correlationId);
+  this.logger.logFunctionExit('attachEventListeners', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="handleUserSearch">
+          <description>Handle user search with debouncing</description>
+          <implementation><![CDATA[
+private handleUserSearch(query: string): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('handleUserSearch', { query }, correlationId);
+  
+  // Clear previous timer
+  if (this.searchDebounceTimer) {
+    clearTimeout(this.searchDebounceTimer);
+  }
+  
+  const searchResults = this.dialogElement?.querySelector('.search-results');
+  if (!searchResults) {
+    return;
+  }
+  
+  // Hide results if query is too short
+  if (query.trim().length < 2) {
+    searchResults.classList.remove('visible');
+    searchResults.innerHTML = '';
+    return;
+  }
+  
+  // Show loading state
+  searchResults.innerHTML = '<div class="loading">Searching...</div>';
+  searchResults.classList.add('visible');
+  
+  // Debounce search
+  this.searchDebounceTimer = setTimeout(async () => {
+    try {
+      const response = await this.sessionManager.authenticatedRequest(
+        `/api/shares/users/search?q=${encodeURIComponent(query)}&limit=10`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Search failed');
+      }
+      
+      const data = await response.json();
+      this.displaySearchResults(data.users);
+      
+      this.logger.logBusinessLogic('User search completed', {
+        query,
+        resultCount: data.users.length
+      }, correlationId);
+      
+    } catch (error) {
+      this.logger.logError('User search failed', error, { correlationId });
+      searchResults.innerHTML = '<div class="error-message">Search failed</div>';
+    }
+  }, 300);
+  
+  this.logger.logFunctionExit('handleUserSearch', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="displaySearchResults">
+          <description>Display user search results</description>
+          <implementation><![CDATA[
+private displaySearchResults(users: UserSearchResult[]): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('displaySearchResults', { userCount: users.length }, correlationId);
+  
+  const searchResults = this.dialogElement?.querySelector('.search-results');
+  if (!searchResults) {
+    return;
+  }
+  
+  if (users.length === 0) {
+    searchResults.innerHTML = '<div class="empty-state">No users found</div>';
+    return;
+  }
+  
+  searchResults.innerHTML = users.map(user => `
+    <div class="search-result-item" data-user-id="${user.id}">
+      <span>${user.username}</span>
+      <button class="share-button" data-user-id="${user.id}" data-username="${user.username}">
+        Share
+      </button>
+    </div>
+  `).join('');
+  
+  // Attach click handlers
+  searchResults.querySelectorAll('.share-button').forEach(button => {
+    button.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const userId = (event.target as HTMLElement).dataset.userId!;
+      const username = (event.target as HTMLElement).dataset.username!;
+      await this.shareWithUser(userId, username);
+    });
+  });
+  
+  this.logger.logFunctionExit('displaySearchResults', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="shareWithUser">
+          <description>Share workspace with a specific user</description>
+          <implementation><![CDATA[
+private async shareWithUser(userId: string, username: string): Promise<void> {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('shareWithUser', { userId, username }, correlationId);
+  
+  try {
+    const response = await this.sessionManager.authenticatedRequest(
+      `/api/shares/workspaces/${this.config.workspaceId}/shares`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shareWithUserId: userId })
+      }
+    );
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to share workspace');
+    }
+    
+    this.logger.logBusinessLogic('Workspace shared successfully', {
+      workspaceId: this.config.workspaceId,
+      sharedWithUserId: userId
+    }, correlationId);
+    
+    // Clear search
+    const searchInput = this.dialogElement?.querySelector('.user-search-input') as HTMLInputElement;
+    if (searchInput) {
+      searchInput.value = '';
+    }
+    
+    const searchResults = this.dialogElement?.querySelector('.search-results');
+    if (searchResults) {
+      searchResults.classList.remove('visible');
+      searchResults.innerHTML = '';
+    }
+    
+    // Reload shares list
+    await this.loadShares();
+    
+    // Show success message
+    this.showToast(`Shared with ${username}`, 'success');
+    
+  } catch (error) {
+    this.logger.logError('Failed to share workspace', error, { correlationId });
+    this.showToast(error.message || 'Failed to share workspace', 'error');
+  }
+  
+  this.logger.logFunctionExit('shareWithUser', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="loadShares">
+          <description>Load current shares for the workspace</description>
+          <implementation><![CDATA[
+private async loadShares(): Promise<void> {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('loadShares', {}, correlationId);
+  
+  const sharesList = this.dialogElement?.querySelector('.shares-list');
+  if (!sharesList) {
+    return;
+  }
+  
+  try {
+    const response = await this.sessionManager.authenticatedRequest(
+      `/api/shares/workspaces/${this.config.workspaceId}/shares`
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to load shares');
+    }
+    
+    const data = await response.json();
+    this.shares = data.shares;
+    
+    if (this.shares.length === 0) {
+      sharesList.innerHTML = '<div class="empty-state">No users have access to this workspace</div>';
+    } else {
+      sharesList.innerHTML = this.shares.map(share => `
+        <div class="share-item">
+          <div class="share-info">
+            <div class="share-username">${share.sharedWith.username}</div>
+            <div class="share-date">
+              Shared ${this.formatDate(share.createdAt)}
+              ${share.lastAccessed ? ` · Last accessed ${this.formatDate(share.lastAccessed)}` : ''}
+            </div>
+          </div>
+          <button class="revoke-button" data-user-id="${share.sharedWith.id}">
+            Revoke
+          </button>
+        </div>
+      `).join('');
+      
+      // Attach revoke handlers
+      sharesList.querySelectorAll('.revoke-button').forEach(button => {
+        button.addEventListener('click', async (event) => {
+          const userId = (event.target as HTMLElement).dataset.userId!;
+          await this.revokeShare(userId);
+        });
+      });
+    }
+    
+    this.logger.logBusinessLogic('Shares loaded', {
+      count: this.shares.length
+    }, correlationId);
+    
+  } catch (error) {
+    this.logger.logError('Failed to load shares', error, { correlationId });
+    sharesList.innerHTML = '<div class="error-message">Failed to load shares</div>';
+  }
+  
+  this.logger.logFunctionExit('loadShares', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="generateShareLink">
+          <description>Generate a shareable link</description>
+          <implementation><![CDATA[
+private async generateShareLink(): Promise<void> {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('generateShareLink', {}, correlationId);
+  
+  try {
+    const requireLogin = (this.dialogElement?.querySelector('.require-login-checkbox') as HTMLInputElement)?.checked;
+    const expiresIn = (this.dialogElement?.querySelector('.expiration-select') as HTMLSelectElement)?.value;
+    
+    const body: any = { requiresLogin: requireLogin };
+    if (expiresIn) {
+      body.expiresIn = parseInt(expiresIn);
+    }
+    
+    const response = await this.sessionManager.authenticatedRequest(
+      `/api/shares/workspaces/${this.config.workspaceId}/share-link`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to generate link');
+    }
+    
+    const data = await response.json();
+    
+    this.logger.logBusinessLogic('Share link generated', {
+      workspaceId: this.config.workspaceId,
+      requiresLogin: requireLogin,
+      expiresIn
+    }, correlationId);
+    
+    // Reload links list
+    await this.loadShareLinks();
+    
+    // Copy to clipboard
+    await navigator.clipboard.writeText(data.link);
+    this.showToast('Link copied to clipboard!', 'success');
+    
+  } catch (error) {
+    this.logger.logError('Failed to generate share link', error, { correlationId });
+    this.showToast('Failed to generate link', 'error');
+  }
+  
+  this.logger.logFunctionExit('generateShareLink', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="showToast">
+          <description>Show a toast notification</description>
+          <implementation><![CDATA[
+private showToast(message: string, type: 'success' | 'error'): void {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: ${type === 'success' ? '#4CAF50' : '#f44336'};
+    color: white;
+    padding: 12px 24px;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 10001;
+    animation: slideIn 0.3s ease-out;
+  `;
+  
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease-out';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+        ]]></implementation>
+        </method>
+
+        <method name="formatDate">
+          <description>Format date for display</description>
+          <implementation><![CDATA[
+private formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  
+  return date.toLocaleDateString();
+}
+        ]]></implementation>
+        </method>
+
+        <method name="close">
+          <description>Close the dialog</description>
+          <implementation><![CDATA[
+public close(): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('close', {}, correlationId);
+  
+  if (this.searchDebounceTimer) {
+    clearTimeout(this.searchDebounceTimer);
+  }
+  
+  this.dialogElement?.remove();
+  this.config.onClose();
+  
+  this.logger.logBusinessLogic('Share dialog closed', {}, correlationId);
+  this.logger.logFunctionExit('close', undefined, correlationId);
+}
+        ]]></implementation>
+        </method>
+      </class>
+    </file>
+  </share-dialog-component>
+
+  <workspace-sidebar-updates>
+    <file path="src/components/workspace-sidebar.ts" modifications="true">
+      <add-imports><![CDATA[
+import { ShareDialog } from './share-dialog';
+      ]]></add-imports>
+
+      <add-properties><![CDATA[
+private sharedWorkspaces: SharedWorkspace[] = [];
+private shareDialog: ShareDialog | null = null;
+      ]]></add-properties>
+
+      <modify-method name="render">
+        <description>Add shared workspaces section to sidebar</description>
+        <changes><![CDATA[
+// Add after the user's workspaces list
+<div class="sidebar-section">
+  <h3 class="sidebar-section-title">Shared with me</h3>
+  <div class="shared-workspaces-list">
+    ${this.sharedWorkspaces.length === 0 
+      ? '<div class="empty-state">No workspaces shared with you</div>'
+      : this.sharedWorkspaces.map(workspace => `
+          <div class="workspace-item shared" data-workspace-id="${workspace.id}">
+            <div class="workspace-info">
+              <span class="workspace-name">${workspace.name}</span>
+              <span class="workspace-owner">by ${workspace.ownerUsername}</span>
+            </div>
+            <div class="workspace-meta">
+              <span class="last-accessed">${this.formatTimeAgo(workspace.lastAccessed || workspace.sharedAt)}</span>
+            </div>
+          </div>
+        `).join('')
+    }
+  </div>
+</div>
+        ]]></changes>
+      </modify-method>
+
+      <add-method name="loadSharedWorkspaces">
+        <description>Load workspaces shared with the user</description>
+        <implementation><![CDATA[
+private async loadSharedWorkspaces(): Promise<void> {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('loadSharedWorkspaces', {}, correlationId);
+  
+  try {
+    const response = await this.sessionManager.authenticatedRequest('/api/shares/shared-with-me');
+    
+    if (!response.ok) {
+      throw new Error('Failed to load shared workspaces');
+    }
+    
+    const data = await response.json();
+    this.sharedWorkspaces = data.workspaces;
+    
+    this.logger.logBusinessLogic('Shared workspaces loaded', {
+      count: this.sharedWorkspaces.length
+    }, correlationId);
+    
+    // Re-render to show shared workspaces
+    this.render();
+    this.attachEventListeners();
+    
+  } catch (error) {
+    this.logger.logError('Failed to load shared workspaces', error, { correlationId });
+  }
+  
+  this.logger.logFunctionExit('loadSharedWorkspaces', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <add-method name="openShareDialog">
+        <description>Open the share dialog for a workspace</description>
+        <implementation><![CDATA[
+private openShareDialog(workspaceId: string, workspaceName: string): void {
+  const correlationId = this.logger.generateCorrelationId();
+  this.logger.logFunctionEntry('openShareDialog', { workspaceId, workspaceName }, correlationId);
+  
+  // Close existing dialog if any
+  if (this.shareDialog) {
+    this.shareDialog.close();
+  }
+  
+  this.shareDialog = new ShareDialog({
+    workspaceId,
+    workspaceName,
+    onClose: () => {
+      this.shareDialog = null;
+    }
+  });
+  
+  this.logger.logBusinessLogic('Share dialog opened', {
+    workspaceId,
+    workspaceName
+  }, correlationId);
+  
+  this.logger.logFunctionExit('openShareDialog', undefined, correlationId);
+}
+        ]]></implementation>
+      </add-method>
+
+      <modify-method name="attachEventListeners">
+        <description>Add share button click handlers</description>
+        <changes><![CDATA[
+// Add share button to each workspace item
+workspaceItems.forEach(item => {
+  const workspaceId = item.dataset.workspaceId;
+  const workspace = this.workspaces.find(w => w.id === workspaceId);
+  
+  if (workspace) {
+    // Add share button
+    const shareButton = document.createElement('button');
+    shareButton.className = 'share-button';
+    shareButton.innerHTML = '<svg>...</svg>'; // Share icon
+    shareButton.title = 'Share workspace';
+    shareButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.openShareDialog(workspace.id, workspace.name);
+    });
+    
+    item.querySelector('.workspace-actions')?.appendChild(shareButton);
+  }
+});
+
+// Handle clicks on shared workspaces
+const sharedItems = this.sidebarElement?.querySelectorAll('.workspace-item.shared');
+sharedItems?.forEach(item => {
+  item.addEventListener('click', () => {
+    const workspaceId = item.dataset.workspaceId;
+    if (workspaceId) {
+      this.loadSharedWorkspace(workspaceId);
+    }
+  });
+});
+        ]]></changes>
+      </modify-method>
+
+      <add-styles><![CDATA[
+.sidebar-section {
+  margin-bottom: 20px;
+}
+
+.sidebar-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #666;
+  margin: 0 0 10px 0;
+  padding: 0 10px;
+}
+
+.shared-workspaces-list {
+  border-top: 1px solid #e0e0e0;
+  padding-top: 10px;
+}
+
+.workspace-item.shared {
+  background-color: #f8f8f8;
+  border-left: 3px solid #2196F3;
+}
+
+.workspace-owner {
+  font-size: 11px;
+  color: #666;
+  display: block;
+}
+
+.share-button {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #666;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+
+.share-button:hover {
+  background-color: #e0e0e0;
+  color: #333;
+}
+
+.share-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: #2196F3;
+  border-radius: 50%;
+  margin-left: 5px;
+}
+
+/* Toast animations */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+      ]]></add-styles>
+    </file>
+  </workspace-sidebar-updates>
+
+  <testing>
+    <test-file path="tests/components/share-dialog.test.ts">
+      <test-suite name="ShareDialog Component">
+        <setup><![CDATA[
+let shareDialog: ShareDialog;
+let mockSessionManager: jest.Mocked<SessionManager>;
+
+beforeEach(() => {
+  document.body.innerHTML = '';
+  
+  // Mock SessionManager
+  mockSessionManager = {
+    authenticatedRequest: jest.fn(),
+    getInstance: jest.fn()
+  };
+  
+  jest.spyOn(SessionManager, 'getInstance').mockReturnValue(mockSessionManager);
+  
+  shareDialog = new ShareDialog({
+    workspaceId: 'workspace_123',
+    workspaceName: 'Test Workspace',
+    onClose: jest.fn()
+  });
+});
+
+afterEach(() => {
+  shareDialog.close();
+  jest.clearAllMocks();
+});
+        ]]></setup>
+
+        <test name="should render dialog with all tabs">
+          <implementation><![CDATA[
+const dialog = document.querySelector('.share-dialog');
+expect(dialog).toBeTruthy();
+
+const tabs = dialog?.querySelectorAll('.tab-button');
+expect(tabs).toHaveLength(3);
+expect(tabs?.[0].textContent).toBe('Direct Shares');
+expect(tabs?.[1].textContent).toBe('Link Sharing');
+expect(tabs?.[2].textContent).toBe('Activity');
+          ]]></implementation>
+        </test>
+
+        <test name="should search users with debouncing">
+          <implementation><![CDATA[
+const searchInput = document.querySelector('.user-search-input') as HTMLInputElement;
+const searchResults = document.querySelector('.search-results');
+
+// Mock search response
+mockSessionManager.authenticatedRequest.mockResolvedValue({
+  ok: true,
+  json: async () => ({ users: [
+    { id: 'user_456', username: 'john_doe' },
+    { id: 'user_789', username: 'jane_doe' }
+  ]})
+});
+
+// Trigger search
+searchInput.value = 'doe';
+searchInput.dispatchEvent(new Event('input'));
+
+// Should show loading immediately
+expect(searchResults?.classList.contains('visible')).toBe(true);
+expect(searchResults?.innerHTML).toContain('Searching...');
+
+// Wait for debounce
+await new Promise(resolve => setTimeout(resolve, 350));
+
+// Should show results
+expect(mockSessionManager.authenticatedRequest).toHaveBeenCalledWith(
+  '/api/shares/users/search?q=doe&limit=10'
+);
+expect(searchResults?.querySelectorAll('.search-result-item')).toHaveLength(2);
+          ]]></implementation>
+        </test>
+
+        <test name="should share workspace with selected user">
+          <implementation><![CDATA[
+// Setup search results
+const searchResults = document.querySelector('.search-results');
+searchResults!.innerHTML = `
+  <div class="search-result-item">
+    <span>john_doe</span>
+    <button class="share-button" data-user-id="user_456" data-username="john_doe">
+      Share
+    </button>
+  </div>
+`;
+
+// Mock share response
+mockSessionManager.authenticatedRequest.mockResolvedValue({
+  ok: true,
+  json: async () => ({ id: 'share_123' })
+});
+
+// Click share button
+const shareButton = searchResults?.querySelector('.share-button') as HTMLButtonElement;
+shareButton.click();
+
+await new Promise(resolve => setTimeout(resolve, 100));
+
+expect(mockSessionManager.authenticatedRequest).toHaveBeenCalledWith(
+  '/api/shares/workspaces/workspace_123/shares',
+  expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ shareWithUserId: 'user_456' })
+  })
+);
+          ]]></implementation>
+        </test>
+
+        <test name="should switch between tabs">
+          <implementation><![CDATA[
+const tabButtons = document.querySelectorAll('.tab-button');
+const tabContents = document.querySelectorAll('.tab-content');
+
+// Initially first tab is active
+expect(tabButtons[0].classList.contains('active')).toBe(true);
+expect(tabContents[0].classList.contains('active')).toBe(true);
+
+// Click second tab
+(tabButtons[1] as HTMLElement).click();
+
+expect(tabButtons[0].classList.contains('active')).toBe(false);
+expect(tabButtons[1].classList.contains('active')).toBe(true);
+expect(tabContents[0].classList.contains('active')).toBe(false);
+expect(tabContents[1].classList.contains('active')).toBe(true);
+          ]]></implementation>
+        </test>
+
+        <test name="should generate share link with options">
+          <implementation><![CDATA[
+// Switch to link tab
+const linkTab = document.querySelector('[data-tab="link"]') as HTMLElement;
+linkTab.click();
+
+// Set options
+const requireLoginCheckbox = document.querySelector('.require-login-checkbox') as HTMLInputElement;
+const expirationSelect = document.querySelector('.expiration-select') as HTMLSelectElement;
+
+requireLoginCheckbox.checked = false;
+expirationSelect.value = '24';
+
+// Mock response
+mockSessionManager.authenticatedRequest.mockResolvedValue({
+  ok: true,
+  json: async () => ({
+    id: 'link_123',
+    token: 'abc123',
+    link: 'https://app.noded.com/shared/abc123'
+  })
+});
+
+// Click generate button
+const generateButton = document.querySelector('.generate-link-button') as HTMLButtonElement;
+generateButton.click();
+
+await new Promise(resolve => setTimeout(resolve, 100));
+
+expect(mockSessionManager.authenticatedRequest).toHaveBeenCalledWith(
+  '/api/shares/workspaces/workspace_123/share-link',
+  expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({
+      requiresLogin: false,
+      expiresIn: 24
+    })
+  })
+);
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+  </testing>
+
+  <deliverables>
+    <deliverable type="component">
+      <item>Complete ShareDialog component with all features</item>
+      <item>User search with debouncing</item>
+      <item>Share management interface</item>
+      <item>Link generation UI</item>
+      <item>Activity log viewer</item>
+    </deliverable>
+    
+    <deliverable type="ui-updates">
+      <item>Updated WorkspaceSidebar with share buttons</item>
+      <item>Shared workspaces section</item>
+      <item>Share indicators and visual feedback</item>
+    </deliverable>
+    
+    <deliverable type="styles">
+      <item>Complete CSS for share dialog</item>
+      <item>Responsive design</item>
+      <item>Toast notifications</item>
+      <item>Loading states</item>
+    </deliverable>
+    
+    <deliverable type="testing">
+      <item>Component tests for ShareDialog</item>
+      <item>User interaction tests</item>
+      <item>Tab switching tests</item>
+    </deliverable>
+  </deliverables>
+
+  <success-criteria>
+    <criterion>ShareDialog renders and functions correctly</criterion>
+    <criterion>User search works with proper debouncing</criterion>
+    <criterion>Shares can be created and revoked through UI</criterion>
+    <criterion>Share links can be generated with options</criterion>
+    <criterion>Shared workspaces appear in sidebar</criterion>
+    <criterion>All UI interactions are smooth and responsive</criterion>
+    <criterion>Error states are handled gracefully</criterion>
+  </success-criteria>
+</phase-implementation>

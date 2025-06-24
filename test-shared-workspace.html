@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Shared Workspace Event</title>
+</head>
+<body>
+    <h1>Test Shared Workspace Loading</h1>
+    
+    <h2>URL Parameter Test</h2>
+    <p>Add <code>?shared=WORKSPACE_ID</code> to the URL to test URL parameter loading</p>
+    
+    <h2>Custom Event Test</h2>
+    <button onclick="testLoadSharedWorkspace()">Fire loadSharedWorkspace Event</button>
+    
+    <h2>Navigation Test</h2>
+    <button onclick="addSharedToUrl()">Add Shared to URL</button>
+    <button onclick="removeSharedFromUrl()">Remove Shared from URL</button>
+    
+    <script>
+        function testLoadSharedWorkspace() {
+            const testWorkspaceId = 'test-workspace-123';
+            console.log('Dispatching loadSharedWorkspace event with ID:', testWorkspaceId);
+            
+            const event = new CustomEvent('loadSharedWorkspace', {
+                detail: { workspaceId: testWorkspaceId }
+            });
+            
+            window.dispatchEvent(event);
+        }
+        
+        function addSharedToUrl() {
+            const url = new URL(window.location);
+            url.searchParams.set('shared', 'test-workspace-456');
+            window.history.pushState({}, '', url);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+        }
+        
+        function removeSharedFromUrl() {
+            const url = new URL(window.location);
+            url.searchParams.delete('shared');
+            window.history.pushState({}, '', url);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+        }
+        
+        // Log any console messages to see if events are being handled
+        console.log('Test page loaded. Open the main app in another tab and use these buttons to test.');
+    </script>
+</body>
+</html>

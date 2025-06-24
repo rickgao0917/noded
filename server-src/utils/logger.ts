@@ -60,4 +60,12 @@ export class Logger {
   public logFatal(message: string, functionName: string, additionalContext?: Record<string, any>): void {
     console.error(`[${this.context}] ${functionName} - FATAL: ${message}`, additionalContext || '');
   }
+
+  public generateCorrelationId(): string {
+    return `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  public logBusinessLogic(message: string, additionalContext?: Record<string, any>, correlationId?: string): void {
+    console.log(`[${this.context}] Business Logic: ${message}`, { ...additionalContext, correlationId });
+  }
 }

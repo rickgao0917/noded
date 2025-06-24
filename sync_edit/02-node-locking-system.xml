@@ -1,0 +1,1137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<specification>
+  <title>Node Locking System for Preventing Concurrent Edits</title>
+  <version>1.0</version>
+  <date>2025-06-24</date>
+  
+  <overview>
+    <description>
+      Implement a distributed locking mechanism at the node level to prevent
+      multiple users from editing the same node simultaneously. Includes
+      visual indicators, automatic lock expiration, and graceful handling
+      of edge cases like disconnections.
+    </description>
+    <key-features>
+      <feature>Node-level locking with 30-second timeout</feature>
+      <feature>Automatic lock renewal on activity</feature>
+      <feature>Visual lock indicators with user information</feature>
+      <feature>Lock queue for fairness</feature>
+      <feature>Automatic release on disconnection</feature>
+    </key-features>
+  </overview>
+
+  <server-implementation>
+    <file path="server-src/services/node-lock-service.ts">
+      <description>Core locking service managing distributed locks</description>
+      <code><![CDATA[
+import { DatabaseService } from './database-service';
+import { Logger } from '../utils/logger';
+
+export interface LockRequest {
+  nodeId: string;
+  workspaceId: string;
+  userId: string;
+  username: string;
+  lockType: 'edit' | 'move' | 'delete';
+  socketId?: string;
+}
+
+export interface LockInfo {
+  nodeId: string;
+  lockedBy: {
+    userId: string;
+    username: string;
+  };
+  lockType: string;
+  lockedAt: Date;
+  expiresAt: Date;
+  socketId?: string;
+}
+
+export interface LockResult {
+  success: boolean;
+  lock?: LockInfo;
+  error?: string;
+  currentLock?: LockInfo;
+  expiresAt?: Date;
+}
+
+export class NodeLockService {
+  private db: DatabaseService;
+  private logger: Logger;
+  private lockTimeout: number = 30000; // 30 seconds
+  private lockQueues: Map<string, LockRequest[]> = new Map();
+  
+  constructor() {
+    this.db = DatabaseService.getInstance();
+    this.logger = new Logger('NodeLockService');
+    
+    // Start cleanup interval
+    this.startCleanupInterval();
+  }
+  
+  /**
+   * Acquire a lock on a node
+   */
+  public async acquireLock(
+    nodeId: string,
+    workspaceId: string,
+    userId: string,
+    username: string,
+    lockType: 'edit' | 'move' | 'delete' = 'edit',
+    socketId?: string
+  ): Promise<LockResult> {
+    this.logger.logFunctionEntry('acquireLock', { nodeId, userId, lockType });
+    
+    try {
+      // Check if node is already locked
+      const existingLock = await this.getLock(nodeId);
+      
+      if (existingLock) {
+        // Check if lock is held by same user
+        if (existingLock.lockedBy.userId === userId) {
+          // Renew the lock
+          const renewed = await this.renewLock(nodeId, userId);
+          if (renewed) {
+            return {
+              success: true,
+              lock: await this.getLock(nodeId),
+              expiresAt: new Date(Date.now() + this.lockTimeout)
+            };
+          }
+        }
+        
+        // Check if lock has expired
+        if (new Date(existingLock.expiresAt) < new Date()) {
+          await this.releaseLock(nodeId, existingLock.lockedBy.userId);
+        } else {
+          // Lock is held by another user
+          this.queueLockRequest({ nodeId, workspaceId, userId, username, lockType, socketId });
+          return {
+            success: false,
+            error: `Node is locked by ${existingLock.lockedBy.username}`,
+            currentLock: existingLock
+          };
+        }
+      }
+      
+      // Try to acquire lock
+      const expiresAt = new Date(Date.now() + this.lockTimeout);
+      
+      await this.db.run(
+        `INSERT INTO node_locks (node_id, workspace_id, locked_by_user_id, locked_by_username, 
+         locked_at, expires_at, lock_type, socket_id) 
+         VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?)`,
+        [nodeId, workspaceId, userId, username, expiresAt.toISOString(), lockType, socketId || null]
+      );
+      
+      const lock = await this.getLock(nodeId);
+      
+      this.logger.logInfo('Lock acquired', 'acquireLock', { nodeId, userId });
+      
+      return {
+        success: true,
+        lock,
+        expiresAt
+      };
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'acquireLock');
+      return {
+        success: false,
+        error: 'Failed to acquire lock'
+      };
+    }
+  }
+  
+  /**
+   * Release a lock
+   */
+  public async releaseLock(nodeId: string, userId: string): Promise<boolean> {
+    this.logger.logFunctionEntry('releaseLock', { nodeId, userId });
+    
+    try {
+      // Verify user owns the lock
+      const lock = await this.getLock(nodeId);
+      if (!lock || lock.lockedBy.userId !== userId) {
+        return false;
+      }
+      
+      // Release the lock
+      await this.db.run(
+        'DELETE FROM node_locks WHERE node_id = ? AND locked_by_user_id = ?',
+        [nodeId, userId]
+      );
+      
+      this.logger.logInfo('Lock released', 'releaseLock', { nodeId, userId });
+      
+      // Process queue for this node
+      await this.processLockQueue(nodeId);
+      
+      return true;
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'releaseLock');
+      return false;
+    }
+  }
+  
+  /**
+   * Renew a lock (extend expiration)
+   */
+  public async renewLock(nodeId: string, userId: string): Promise<boolean> {
+    this.logger.logFunctionEntry('renewLock', { nodeId, userId });
+    
+    try {
+      const newExpiresAt = new Date(Date.now() + this.lockTimeout);
+      
+      const result = await this.db.run(
+        `UPDATE node_locks 
+         SET expires_at = ? 
+         WHERE node_id = ? AND locked_by_user_id = ?`,
+        [newExpiresAt.toISOString(), nodeId, userId]
+      );
+      
+      return result.changes > 0;
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'renewLock');
+      return false;
+    }
+  }
+  
+  /**
+   * Check if a node is locked
+   */
+  public async isLocked(nodeId: string): Promise<boolean> {
+    const lock = await this.getLock(nodeId);
+    return !!lock && new Date(lock.expiresAt) > new Date();
+  }
+  
+  /**
+   * Get lock information for a node
+   */
+  public async getLock(nodeId: string): Promise<LockInfo | null> {
+    try {
+      const row = await this.db.get(
+        'SELECT * FROM node_locks WHERE node_id = ?',
+        [nodeId]
+      );
+      
+      if (!row) return null;
+      
+      return {
+        nodeId: row.node_id,
+        lockedBy: {
+          userId: row.locked_by_user_id,
+          username: row.locked_by_username
+        },
+        lockType: row.lock_type,
+        lockedAt: new Date(row.locked_at),
+        expiresAt: new Date(row.expires_at),
+        socketId: row.socket_id
+      };
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'getLock');
+      return null;
+    }
+  }
+  
+  /**
+   * Get all locks for a workspace
+   */
+  public async getWorkspaceLocks(workspaceId: string): Promise<LockInfo[]> {
+    try {
+      const rows = await this.db.all(
+        'SELECT * FROM node_locks WHERE workspace_id = ? AND expires_at > datetime("now")',
+        [workspaceId]
+      );
+      
+      return rows.map(row => ({
+        nodeId: row.node_id,
+        lockedBy: {
+          userId: row.locked_by_user_id,
+          username: row.locked_by_username
+        },
+        lockType: row.lock_type,
+        lockedAt: new Date(row.locked_at),
+        expiresAt: new Date(row.expires_at),
+        socketId: row.socket_id
+      }));
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'getWorkspaceLocks');
+      return [];
+    }
+  }
+  
+  /**
+   * Release all locks for a user in a workspace
+   */
+  public async releaseUserLocks(userId: string, workspaceId: string): Promise<void> {
+    this.logger.logFunctionEntry('releaseUserLocks', { userId, workspaceId });
+    
+    try {
+      // Get all locks held by user
+      const userLocks = await this.db.all(
+        'SELECT node_id FROM node_locks WHERE locked_by_user_id = ? AND workspace_id = ?',
+        [userId, workspaceId]
+      );
+      
+      // Release each lock
+      await this.db.run(
+        'DELETE FROM node_locks WHERE locked_by_user_id = ? AND workspace_id = ?',
+        [userId, workspaceId]
+      );
+      
+      // Process queues for released nodes
+      for (const lock of userLocks) {
+        await this.processLockQueue(lock.node_id);
+      }
+      
+      this.logger.logInfo('User locks released', 'releaseUserLocks', {
+        userId,
+        workspaceId,
+        locksReleased: userLocks.length
+      });
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'releaseUserLocks');
+    }
+  }
+  
+  /**
+   * Release all locks for a socket (on disconnect)
+   */
+  public async releaseSocketLocks(socketId: string): Promise<void> {
+    try {
+      const locks = await this.db.all(
+        'SELECT node_id FROM node_locks WHERE socket_id = ?',
+        [socketId]
+      );
+      
+      await this.db.run(
+        'DELETE FROM node_locks WHERE socket_id = ?',
+        [socketId]
+      );
+      
+      // Process queues
+      for (const lock of locks) {
+        await this.processLockQueue(lock.node_id);
+      }
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'releaseSocketLocks');
+    }
+  }
+  
+  /**
+   * Verify if a user has a lock on a node
+   */
+  public async verifyLock(nodeId: string, userId: string): Promise<boolean> {
+    const lock = await this.getLock(nodeId);
+    return !!lock && 
+           lock.lockedBy.userId === userId && 
+           new Date(lock.expiresAt) > new Date();
+  }
+  
+  /**
+   * Queue a lock request
+   */
+  private queueLockRequest(request: LockRequest): void {
+    const queueKey = request.nodeId;
+    
+    if (!this.lockQueues.has(queueKey)) {
+      this.lockQueues.set(queueKey, []);
+    }
+    
+    const queue = this.lockQueues.get(queueKey)!;
+    
+    // Avoid duplicate requests from same user
+    const existingIndex = queue.findIndex(r => r.userId === request.userId);
+    if (existingIndex !== -1) {
+      queue[existingIndex] = request;
+    } else {
+      queue.push(request);
+    }
+  }
+  
+  /**
+   * Process the lock queue for a node
+   */
+  private async processLockQueue(nodeId: string): Promise<void> {
+    const queue = this.lockQueues.get(nodeId);
+    if (!queue || queue.length === 0) return;
+    
+    const nextRequest = queue.shift();
+    if (!nextRequest) return;
+    
+    // Try to grant lock to next requester
+    const result = await this.acquireLock(
+      nextRequest.nodeId,
+      nextRequest.workspaceId,
+      nextRequest.userId,
+      nextRequest.username,
+      nextRequest.lockType,
+      nextRequest.socketId
+    );
+    
+    // Notify via WebSocket if successful
+    if (result.success && nextRequest.socketId) {
+      // This would be handled by WebSocketService
+      // by emitting a 'lock-granted' event
+    }
+  }
+  
+  /**
+   * Release expired locks periodically
+   */
+  private async releaseExpiredLocks(): Promise<void> {
+    try {
+      const expiredLocks = await this.db.all(
+        'SELECT node_id, locked_by_user_id FROM node_locks WHERE expires_at < datetime("now")'
+      );
+      
+      for (const lock of expiredLocks) {
+        await this.releaseLock(lock.node_id, lock.locked_by_user_id);
+      }
+      
+      if (expiredLocks.length > 0) {
+        this.logger.logInfo('Expired locks released', 'releaseExpiredLocks', {
+          count: expiredLocks.length
+        });
+      }
+      
+    } catch (error) {
+      this.logger.logError(error as Error, 'releaseExpiredLocks');
+    }
+  }
+  
+  /**
+   * Start cleanup interval for expired locks
+   */
+  private startCleanupInterval(): void {
+    setInterval(() => {
+      this.releaseExpiredLocks();
+    }, 10000); // Every 10 seconds
+  }
+}
+      ]]></code>
+    </file>
+  </server-implementation>
+
+  <client-implementation>
+    <file path="src/components/node-lock-indicator.ts">
+      <description>Visual indicator for locked nodes</description>
+      <code><![CDATA[
+import { Logger } from '../utils/logger';
+
+export interface LockIndicatorConfig {
+  nodeId: string;
+  username: string;
+  userId: string;
+  color: string;
+  expiresAt: Date;
+}
+
+export class NodeLockIndicator {
+  private logger: Logger;
+  private element: HTMLElement | null = null;
+  private expiryTimer: number | null = null;
+  
+  constructor(private config: LockIndicatorConfig) {
+    this.logger = new Logger('NodeLockIndicator');
+    this.render();
+  }
+  
+  private render(): void {
+    this.element = document.createElement('div');
+    this.element.className = 'node-lock-indicator';
+    this.element.innerHTML = `
+      <div class="lock-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M13 6h-1V4.5A4.5 4.5 0 0 0 7.5 0 4.5 4.5 0 0 0 3 4.5V6H2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1zM5 4.5A2.5 2.5 0 0 1 7.5 2 2.5 2.5 0 0 1 10 4.5V6H5V4.5z"/>
+        </svg>
+      </div>
+      <div class="lock-info">
+        <span class="lock-username">${this.config.username}</span>
+        <span class="lock-timer"></span>
+      </div>
+    `;
+    
+    // Apply user color
+    this.element.style.setProperty('--lock-color', this.config.color);
+    
+    // Start expiry countdown
+    this.startExpiryTimer();
+  }
+  
+  public attachTo(nodeElement: HTMLElement): void {
+    if (!this.element) return;
+    
+    const existingIndicator = nodeElement.querySelector('.node-lock-indicator');
+    if (existingIndicator) {
+      existingIndicator.remove();
+    }
+    
+    nodeElement.appendChild(this.element);
+    nodeElement.classList.add('node-locked');
+    
+    // Add tooltip
+    this.element.title = `Locked by ${this.config.username}`;
+  }
+  
+  public update(config: Partial<LockIndicatorConfig>): void {
+    if (config.username && this.element) {
+      const usernameEl = this.element.querySelector('.lock-username');
+      if (usernameEl) {
+        usernameEl.textContent = config.username;
+      }
+    }
+    
+    if (config.expiresAt) {
+      this.config.expiresAt = config.expiresAt;
+      this.startExpiryTimer();
+    }
+  }
+  
+  private startExpiryTimer(): void {
+    if (this.expiryTimer) {
+      clearInterval(this.expiryTimer);
+    }
+    
+    const updateTimer = () => {
+      const now = Date.now();
+      const expiry = this.config.expiresAt.getTime();
+      const remaining = Math.max(0, expiry - now);
+      
+      if (remaining === 0) {
+        this.destroy();
+        return;
+      }
+      
+      const seconds = Math.ceil(remaining / 1000);
+      const timerEl = this.element?.querySelector('.lock-timer');
+      if (timerEl) {
+        timerEl.textContent = `${seconds}s`;
+      }
+    };
+    
+    updateTimer();
+    this.expiryTimer = window.setInterval(updateTimer, 1000);
+  }
+  
+  public destroy(): void {
+    if (this.expiryTimer) {
+      clearInterval(this.expiryTimer);
+    }
+    
+    if (this.element) {
+      const nodeEl = this.element.parentElement;
+      if (nodeEl) {
+        nodeEl.classList.remove('node-locked');
+      }
+      
+      this.element.remove();
+      this.element = null;
+    }
+  }
+}
+      ]]></code>
+    </file>
+
+    <file path="src/stores/collaboration-store.ts">
+      <description>Client-side state management for collaboration</description>
+      <code><![CDATA[
+import { Logger } from '../utils/logger';
+import { CollaborationService } from '../services/collaboration-service';
+import { NodeLockIndicator } from '../components/node-lock-indicator';
+
+export interface UserInfo {
+  userId: string;
+  username: string;
+  color: string;
+  connectedAt: string;
+}
+
+export interface LockInfo {
+  nodeId: string;
+  lockedBy: UserInfo;
+  lockType: string;
+  expiresAt: Date;
+  indicator?: NodeLockIndicator;
+}
+
+export interface CollaborationState {
+  connectedUsers: Map<string, UserInfo>;
+  nodeLocks: Map<string, LockInfo>;
+  myLocks: Set<string>;
+  connectionStatus: 'connected' | 'disconnected' | 'reconnecting';
+  workspaceId: string | null;
+}
+
+export class CollaborationStore {
+  private static instance: CollaborationStore;
+  private logger: Logger;
+  private collaborationService: CollaborationService;
+  private state: CollaborationState;
+  private listeners: Set<(state: CollaborationState) => void> = new Set();
+  
+  private constructor() {
+    this.logger = new Logger('CollaborationStore');
+    this.collaborationService = CollaborationService.getInstance();
+    
+    this.state = {
+      connectedUsers: new Map(),
+      nodeLocks: new Map(),
+      myLocks: new Set(),
+      connectionStatus: 'disconnected',
+      workspaceId: null
+    };
+    
+    this.setupEventHandlers();
+  }
+  
+  public static getInstance(): CollaborationStore {
+    if (!CollaborationStore.instance) {
+      CollaborationStore.instance = new CollaborationStore();
+    }
+    return CollaborationStore.instance;
+  }
+  
+  private setupEventHandlers(): void {
+    // Connection status
+    this.collaborationService.on('connection-status', (data) => {
+      this.updateState({ connectionStatus: data.status });
+    });
+    
+    // Workspace state
+    this.collaborationService.on('workspace-state', (data) => {
+      this.handleWorkspaceState(data);
+    });
+    
+    // Lock events
+    this.collaborationService.on('node-locked', (data) => {
+      this.handleNodeLocked(data);
+    });
+    
+    this.collaborationService.on('node-unlocked', (data) => {
+      this.handleNodeUnlocked(data);
+    });
+    
+    // Presence events
+    this.collaborationService.on('presence-update', (data) => {
+      this.handlePresenceUpdate(data);
+    });
+  }
+  
+  private handleWorkspaceState(data: any): void {
+    // Clear existing state
+    this.state.nodeLocks.forEach(lock => {
+      if (lock.indicator) {
+        lock.indicator.destroy();
+      }
+    });
+    
+    this.state.connectedUsers.clear();
+    this.state.nodeLocks.clear();
+    
+    // Update with new state
+    if (data.activeUsers) {
+      data.activeUsers.forEach((user: UserInfo) => {
+        this.state.connectedUsers.set(user.userId, user);
+      });
+    }
+    
+    if (data.locks) {
+      data.locks.forEach((lock: any) => {
+        this.addLock(lock);
+      });
+    }
+    
+    this.notifyListeners();
+  }
+  
+  private handleNodeLocked(data: any): void {
+    const lockInfo: LockInfo = {
+      nodeId: data.nodeId,
+      lockedBy: {
+        userId: data.lockedBy.userId,
+        username: data.lockedBy.username,
+        color: this.getUserColor(data.lockedBy.userId),
+        connectedAt: new Date().toISOString()
+      },
+      lockType: data.lockType,
+      expiresAt: new Date(data.expiresAt)
+    };
+    
+    this.addLock(lockInfo);
+    
+    // Track if it's our lock
+    const session = (window as any).sessionManager?.getSession();
+    if (session && data.lockedBy.userId === session.userId) {
+      this.state.myLocks.add(data.nodeId);
+    }
+    
+    this.notifyListeners();
+  }
+  
+  private handleNodeUnlocked(data: any): void {
+    const lock = this.state.nodeLocks.get(data.nodeId);
+    if (lock) {
+      if (lock.indicator) {
+        lock.indicator.destroy();
+      }
+      this.state.nodeLocks.delete(data.nodeId);
+      this.state.myLocks.delete(data.nodeId);
+      this.notifyListeners();
+    }
+  }
+  
+  private handlePresenceUpdate(data: any): void {
+    this.state.connectedUsers.clear();
+    
+    if (data.activeUsers) {
+      data.activeUsers.forEach((user: UserInfo) => {
+        this.state.connectedUsers.set(user.userId, user);
+      });
+    }
+    
+    this.notifyListeners();
+  }
+  
+  private addLock(lockInfo: any): void {
+    // Remove existing lock indicator if any
+    const existingLock = this.state.nodeLocks.get(lockInfo.nodeId);
+    if (existingLock?.indicator) {
+      existingLock.indicator.destroy();
+    }
+    
+    // Create new lock indicator
+    const nodeEl = document.querySelector(`[data-node-id="${lockInfo.nodeId}"]`) as HTMLElement;
+    if (nodeEl) {
+      const indicator = new NodeLockIndicator({
+        nodeId: lockInfo.nodeId,
+        username: lockInfo.lockedBy.username,
+        userId: lockInfo.lockedBy.userId,
+        color: this.getUserColor(lockInfo.lockedBy.userId),
+        expiresAt: new Date(lockInfo.expiresAt)
+      });
+      
+      indicator.attachTo(nodeEl);
+      lockInfo.indicator = indicator;
+    }
+    
+    this.state.nodeLocks.set(lockInfo.nodeId, lockInfo);
+  }
+  
+  private getUserColor(userId: string): string {
+    const user = this.state.connectedUsers.get(userId);
+    if (user?.color) return user.color;
+    
+    // Generate color if not found
+    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57', '#FF9FF3'];
+    const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return colors[hash % colors.length];
+  }
+  
+  public async requestLock(nodeId: string, lockType: string = 'edit'): Promise<boolean> {
+    try {
+      const success = await this.collaborationService.requestNodeLock(nodeId, lockType);
+      if (success) {
+        this.state.myLocks.add(nodeId);
+      }
+      return success;
+    } catch (error) {
+      this.logger.error('Failed to request lock', error);
+      return false;
+    }
+  }
+  
+  public releaseLock(nodeId: string): void {
+    this.collaborationService.releaseNodeLock(nodeId);
+    this.state.myLocks.delete(nodeId);
+  }
+  
+  public isNodeLocked(nodeId: string): boolean {
+    return this.state.nodeLocks.has(nodeId);
+  }
+  
+  public isNodeLockedByMe(nodeId: string): boolean {
+    return this.state.myLocks.has(nodeId);
+  }
+  
+  public getNodeLock(nodeId: string): LockInfo | undefined {
+    return this.state.nodeLocks.get(nodeId);
+  }
+  
+  public subscribe(listener: (state: CollaborationState) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.state); // Initial state
+    
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+  
+  private updateState(updates: Partial<CollaborationState>): void {
+    this.state = { ...this.state, ...updates };
+    this.notifyListeners();
+  }
+  
+  private notifyListeners(): void {
+    this.listeners.forEach(listener => listener(this.state));
+  }
+  
+  public getState(): CollaborationState {
+    return { ...this.state };
+  }
+}
+      ]]></code>
+    </file>
+
+    <file path="src/components/graph-editor.ts">
+      <description>Modifications to GraphEditor for lock integration</description>
+      <modifications><![CDATA[
+// Add to imports
+import { CollaborationStore } from '../stores/collaboration-store';
+
+// Add to class properties
+private collaborationStore: CollaborationStore;
+private lockReleaseTimers: Map<string, number> = new Map();
+
+// Add to constructor
+this.collaborationStore = CollaborationStore.getInstance();
+
+// Modify existing edit methods to check locks
+
+// In handleNodeClick or similar edit initiation:
+private async handleNodeEdit(nodeId: string): Promise<void> {
+  // Check if node is locked by another user
+  const lock = this.collaborationStore.getNodeLock(nodeId);
+  if (lock && !this.collaborationStore.isNodeLockedByMe(nodeId)) {
+    this.showLockNotification(lock);
+    return;
+  }
+  
+  // Request lock if we don't have it
+  if (!this.collaborationStore.isNodeLockedByMe(nodeId)) {
+    const acquired = await this.collaborationStore.requestLock(nodeId, 'edit');
+    if (!acquired) {
+      this.showToast('Unable to edit: node is locked by another user', 'warning');
+      return;
+    }
+  }
+  
+  // Proceed with edit
+  this.enableNodeEditing(nodeId);
+  
+  // Set up auto-release timer
+  this.resetLockReleaseTimer(nodeId);
+}
+
+// Add lock release timer management
+private resetLockReleaseTimer(nodeId: string): void {
+  // Clear existing timer
+  const existingTimer = this.lockReleaseTimers.get(nodeId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  
+  // Set new timer for 3 seconds of inactivity
+  const timer = window.setTimeout(() => {
+    this.collaborationStore.releaseLock(nodeId);
+    this.lockReleaseTimers.delete(nodeId);
+  }, 3000);
+  
+  this.lockReleaseTimers.set(nodeId, timer);
+}
+
+// Modify text input handlers to reset timer on activity
+private handleNodeContentChange(nodeId: string, content: string): void {
+  // Reset lock timer on each change
+  if (this.collaborationStore.isNodeLockedByMe(nodeId)) {
+    this.resetLockReleaseTimer(nodeId);
+  }
+  
+  // Existing change handling...
+}
+
+// Add visual feedback for locked nodes
+private updateNodeLockStates(): void {
+  this.nodes.forEach((node, nodeId) => {
+    const nodeEl = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!nodeEl) return;
+    
+    const isLocked = this.collaborationStore.isNodeLocked(nodeId);
+    const isLockedByMe = this.collaborationStore.isNodeLockedByMe(nodeId);
+    
+    if (isLocked && !isLockedByMe) {
+      nodeEl.classList.add('node-locked-by-other');
+      // Disable edit controls
+      this.disableNodeEditing(nodeId);
+    } else if (isLockedByMe) {
+      nodeEl.classList.add('node-locked-by-me');
+    } else {
+      nodeEl.classList.remove('node-locked-by-other', 'node-locked-by-me');
+    }
+  });
+}
+
+// Subscribe to collaboration state changes
+private subscribeToCollaboration(): void {
+  this.collaborationStore.subscribe((state) => {
+    this.updateNodeLockStates();
+  });
+}
+
+// Show lock notification
+private showLockNotification(lock: any): void {
+  const notification = document.createElement('div');
+  notification.className = 'lock-notification';
+  notification.innerHTML = `
+    <div class="lock-notification-content">
+      <span class="lock-icon">🔒</span>
+      <span class="lock-message">
+        ${lock.lockedBy.username} is editing this node
+      </span>
+    </div>
+  `;
+  
+  // Position near the locked node
+  const nodeEl = document.querySelector(`[data-node-id="${lock.nodeId}"]`);
+  if (nodeEl) {
+    const rect = nodeEl.getBoundingClientRect();
+    notification.style.left = `${rect.left}px`;
+    notification.style.top = `${rect.top - 40}px`;
+  }
+  
+  document.body.appendChild(notification);
+  
+  // Remove after 3 seconds
+  setTimeout(() => {
+    notification.remove();
+  }, 3000);
+}
+
+// Clean up on destroy
+public destroy(): void {
+  // Release all locks
+  this.lockReleaseTimers.forEach((timer, nodeId) => {
+    clearTimeout(timer);
+    this.collaborationStore.releaseLock(nodeId);
+  });
+  
+  // Existing cleanup...
+}
+      ]]></modifications>
+    </file>
+
+    <styles>
+      <description>CSS styles for lock indicators and states</description>
+      <css><![CDATA[
+/* Node lock indicator */
+.node-lock-indicator {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--lock-color, #FF6B6B);
+  color: white;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  z-index: 10;
+  animation: lockPulse 2s ease-in-out infinite;
+}
+
+@keyframes lockPulse {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+.lock-icon {
+  display: flex;
+  align-items: center;
+}
+
+.lock-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lock-timer {
+  opacity: 0.8;
+  font-size: 10px;
+}
+
+/* Locked node states */
+.node-locked {
+  position: relative;
+}
+
+.node-locked-by-other {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.node-locked-by-other .btn,
+.node-locked-by-other textarea,
+.node-locked-by-other input {
+  pointer-events: none;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.node-locked-by-other::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--lock-color, #FF6B6B);
+  border-radius: 8px;
+  pointer-events: none;
+  animation: lockBorder 2s ease-in-out infinite;
+}
+
+@keyframes lockBorder {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+.node-locked-by-me {
+  box-shadow: 0 0 0 2px #4ECDC4;
+}
+
+/* Lock notification */
+.lock-notification {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 1000;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lock-notification-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Cursor indicators for other users */
+.user-cursor {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  z-index: 100;
+  transition: all 0.1s ease-out;
+}
+
+.user-cursor::before {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 16px solid var(--cursor-color);
+  transform: rotate(-45deg);
+  transform-origin: top left;
+}
+
+.user-cursor-label {
+  position: absolute;
+  left: 20px;
+  top: -5px;
+  background: var(--cursor-color);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Presence indicators */
+.collaboration-presence {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  display: flex;
+  gap: 8px;
+  z-index: 100;
+}
+
+.presence-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--user-color);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  border: 2px solid #2d2d2d;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.presence-avatar:hover {
+  transform: scale(1.1);
+}
+
+.presence-tooltip {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.presence-avatar:hover .presence-tooltip {
+  opacity: 1;
+}
+      ]]></css>
+    </styles>
+  </client-implementation>
+
+  <testing>
+    <test-scenarios>
+      <scenario>Single user acquires and releases lock</scenario>
+      <scenario>Multiple users attempt to lock same node</scenario>
+      <scenario>Lock expiration and automatic release</scenario>
+      <scenario>Lock renewal on continued editing</scenario>
+      <scenario>Disconnection releases all user locks</scenario>
+      <scenario>Lock queue processing</scenario>
+      <scenario>Visual indicators update correctly</scenario>
+      <scenario>Lock state persistence across reconnection</scenario>
+    </test-scenarios>
+  </testing>
+</specification>

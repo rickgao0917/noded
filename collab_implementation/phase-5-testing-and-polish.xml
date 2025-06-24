@@ -1,0 +1,1062 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phase-implementation>
+  <metadata>
+    <phase-number>5</phase-number>
+    <phase-name>Testing and Polish</phase-name>
+    <estimated-duration>2 days</estimated-duration>
+    <dependencies>
+      <dependency>All previous phases completed</dependency>
+      <dependency>Complete sharing system implementation</dependency>
+      <dependency>Read-only mode functionality</dependency>
+    </dependencies>
+  </metadata>
+
+  <objectives>
+    <objective priority="1">End-to-end testing of complete sharing flow</objective>
+    <objective priority="2">Security testing and penetration attempts</objective>
+    <objective priority="3">Performance testing with many shares</objective>
+    <objective priority="4">UI/UX polish and error handling</objective>
+    <objective priority="5">Documentation updates</objective>
+  </objectives>
+
+  <end-to-end-tests>
+    <test-file path="tests/e2e/sharing-workflow.test.ts">
+      <test-suite name="Complete Sharing Workflow">
+        <setup><![CDATA[
+import { Browser, Page } from 'puppeteer';
+import puppeteer from 'puppeteer';
+
+let browser: Browser;
+let ownerPage: Page;
+let recipientPage: Page;
+let testServer: any;
+
+const BASE_URL = 'http://localhost:8000';
+
+beforeAll(async () => {
+  // Start test server
+  testServer = await startTestServer();
+  
+  // Launch browser
+  browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+});
+
+beforeEach(async () => {
+  // Create fresh pages for each test
+  ownerPage = await browser.newPage();
+  recipientPage = await browser.newPage();
+  
+  // Clear database
+  await clearTestDatabase();
+  
+  // Register test users
+  await registerTestUser('owner_user', 'password123');
+  await registerTestUser('recipient_user', 'password456');
+});
+
+afterEach(async () => {
+  await ownerPage.close();
+  await recipientPage.close();
+});
+
+afterAll(async () => {
+  await browser.close();
+  await testServer.close();
+});
+        ]]></setup>
+
+        <test name="should complete full sharing workflow">
+          <implementation><![CDATA[
+// Step 1: Owner logs in and creates workspace
+await ownerPage.goto(BASE_URL);
+await login(ownerPage, 'owner_user', 'password123');
+await createWorkspace(ownerPage, 'Project Alpha');
+
+// Add some content to the workspace
+await ownerPage.click('.add-root-button');
+await ownerPage.type('.node textarea', 'Initial project setup');
+await ownerPage.keyboard.press('Tab');
+await ownerPage.type('.node textarea:last-child', 'Project requirements and goals');
+
+// Wait for auto-save
+await ownerPage.waitForTimeout(6000);
+
+// Step 2: Open share dialog
+await ownerPage.click('.workspace-item[data-workspace-name="Project Alpha"] .share-button');
+await ownerPage.waitForSelector('.share-dialog');
+
+// Step 3: Search for recipient
+await ownerPage.type('.user-search-input', 'recipient');
+await ownerPage.waitForSelector('.search-results.visible');
+await ownerPage.waitForSelector('.search-result-item');
+
+// Step 4: Share with recipient
+await ownerPage.click('.search-result-item .share-button');
+await ownerPage.waitForSelector('.shares-list .share-item');
+
+// Verify share was created
+const shareText = await ownerPage.$eval('.share-item .share-username', el => el.textContent);
+expect(shareText).toBe('recipient_user');
+
+// Close dialog
+await ownerPage.click('.close-button');
+
+// Step 5: Recipient logs in
+await recipientPage.goto(BASE_URL);
+await login(recipientPage, 'recipient_user', 'password456');
+
+// Step 6: Check shared workspaces section
+await recipientPage.waitForSelector('.shared-workspaces-list .workspace-item');
+const sharedWorkspaceName = await recipientPage.$eval(
+  '.shared-workspaces-list .workspace-name',
+  el => el.textContent
+);
+expect(sharedWorkspaceName).toBe('Project Alpha');
+
+// Step 7: Open shared workspace
+await recipientPage.click('.shared-workspaces-list .workspace-item');
+await recipientPage.waitForSelector('.read-only-indicator');
+await recipientPage.waitForSelector('.node');
+
+// Verify read-only mode
+const readOnlyText = await recipientPage.$eval('.read-only-text', el => el.textContent);
+expect(readOnlyText).toContain('View-only mode');
+expect(readOnlyText).toContain('Shared by owner_user');
+
+// Verify content is visible
+const nodeContent = await recipientPage.$eval('.node textarea', el => el.value);
+expect(nodeContent).toBe('Initial project setup');
+
+// Step 8: Verify editing is disabled
+const addRootButton = await recipientPage.$('.add-root-button');
+expect(addRootButton).toBeNull(); // Should be hidden
+
+const textarea = await recipientPage.$('.node textarea');
+const isReadOnly = await recipientPage.evaluate(el => el.readOnly, textarea);
+expect(isReadOnly).toBe(true);
+
+// Step 9: Owner revokes access
+await ownerPage.click('.workspace-item[data-workspace-name="Project Alpha"] .share-button');
+await ownerPage.waitForSelector('.share-dialog');
+await ownerPage.click('.share-item .revoke-button');
+await ownerPage.waitForFunction(
+  () => !document.querySelector('.shares-list .share-item')
+);
+
+// Step 10: Verify recipient loses access
+await recipientPage.reload();
+await recipientPage.waitForSelector('.shared-workspaces-list .empty-state');
+const emptyStateText = await recipientPage.$eval(
+  '.shared-workspaces-list .empty-state',
+  el => el.textContent
+);
+expect(emptyStateText).toBe('No workspaces shared with you');
+          ]]></implementation>
+        </test>
+
+        <test name="should handle share link workflow">
+          <implementation><![CDATA[
+// Owner creates workspace and generates share link
+await ownerPage.goto(BASE_URL);
+await login(ownerPage, 'owner_user', 'password123');
+await createWorkspace(ownerPage, 'Public Demo');
+
+// Open share dialog and switch to link tab
+await ownerPage.click('.workspace-item .share-button');
+await ownerPage.waitForSelector('.share-dialog');
+await ownerPage.click('[data-tab="link"]');
+
+// Configure link options
+await ownerPage.uncheck('.require-login-checkbox');
+await ownerPage.select('.expiration-select', '168'); // 1 week
+
+// Generate link
+await ownerPage.click('.generate-link-button');
+await ownerPage.waitForSelector('.links-list .link-item');
+
+// Get the share link
+const shareLink = await ownerPage.$eval('.link-url', el => el.textContent);
+
+// Access link without authentication
+const anonymousPage = await browser.newPage();
+await anonymousPage.goto(shareLink);
+await anonymousPage.waitForSelector('.read-only-indicator');
+
+// Verify anonymous access works
+const workspaceVisible = await anonymousPage.$('.node');
+expect(workspaceVisible).toBeTruthy();
+
+// Verify link shows in owner's active links
+const accessCount = await ownerPage.$eval(
+  '.link-item .access-count',
+  el => el.textContent
+);
+expect(accessCount).toContain('1');
+
+await anonymousPage.close();
+          ]]></implementation>
+        </test>
+
+        <test name="should track share activity">
+          <implementation><![CDATA[
+// Setup and share workspace
+await ownerPage.goto(BASE_URL);
+await login(ownerPage, 'owner_user', 'password123');
+await createWorkspace(ownerPage, 'Activity Test');
+
+// Share with recipient
+await shareWithUser(ownerPage, 'recipient_user');
+
+// Recipient accesses workspace
+await recipientPage.goto(BASE_URL);
+await login(recipientPage, 'recipient_user', 'password456');
+await recipientPage.click('.shared-workspaces-list .workspace-item');
+await recipientPage.waitForSelector('.read-only-indicator');
+
+// Owner checks activity log
+await ownerPage.click('.workspace-item .share-button');
+await ownerPage.waitForSelector('.share-dialog');
+await ownerPage.click('[data-tab="activity"]');
+await ownerPage.waitForSelector('.activity-list .activity-item');
+
+// Verify activity entries
+const activities = await ownerPage.$$eval(
+  '.activity-item',
+  items => items.map(item => ({
+    action: item.querySelector('.activity-action')?.textContent,
+    user: item.querySelector('.activity-user')?.textContent
+  }))
+);
+
+expect(activities).toContainEqual(
+  expect.objectContaining({
+    action: 'share_granted',
+    user: 'owner_user'
+  })
+);
+
+expect(activities).toContainEqual(
+  expect.objectContaining({
+    action: 'viewed',
+    user: 'recipient_user'
+  })
+);
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+  </end-to-end-tests>
+
+  <security-tests>
+    <test-file path="tests/security/sharing-security.test.ts">
+      <test-suite name="Sharing Security Tests">
+        <test name="should prevent unauthorized access to workspaces">
+          <implementation><![CDATA[
+const attackerToken = await getAuthToken('attacker_user', 'password');
+const targetWorkspaceId = 'workspace_belongs_to_another_user';
+
+// Try to access workspace without permission
+const response = await fetch(`${API_URL}/workspaces/${targetWorkspaceId}`, {
+  headers: {
+    'Authorization': `Bearer ${attackerToken}`
+  }
+});
+
+expect(response.status).toBe(403);
+expect(await response.json()).toEqual({
+  error: 'Access denied'
+});
+          ]]></implementation>
+        </test>
+
+        <test name="should prevent privilege escalation">
+          <implementation><![CDATA[
+// User has view access, tries to modify
+const viewerToken = await getAuthToken('viewer_user', 'password');
+const sharedWorkspaceId = await getSharedWorkspaceId();
+
+// Try to update workspace
+const updateResponse = await fetch(`${API_URL}/workspaces/${sharedWorkspaceId}`, {
+  method: 'PUT',
+  headers: {
+    'Authorization': `Bearer ${viewerToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    graphData: '{"malicious": "data"}'
+  })
+});
+
+expect(updateResponse.status).toBe(403);
+
+// Try to share with others
+const shareResponse = await fetch(`${API_URL}/shares/workspaces/${sharedWorkspaceId}/shares`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${viewerToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    shareWithUserId: 'another_user'
+  })
+});
+
+expect(shareResponse.status).toBe(403);
+          ]]></implementation>
+        </test>
+
+        <test name="should validate share token security">
+          <implementation><![CDATA[
+// Try common token patterns
+const invalidTokens = [
+  'aaaaaaaaaaaaaaaa',
+  '0000000000000000',
+  '../../../etc/passwd',
+  '<script>alert(1)</script>',
+  'SELECT * FROM users',
+  ''
+];
+
+for (const token of invalidTokens) {
+  const response = await fetch(`${API_URL}/shares/shared/${token}`);
+  expect(response.status).toBe(404);
+  
+  const data = await response.json();
+  expect(data.error).toBe('Invalid or expired share link');
+}
+          ]]></implementation>
+        </test>
+
+        <test name="should prevent share link enumeration">
+          <implementation><![CDATA[
+// Generate many requests with random tokens
+const attempts = [];
+for (let i = 0; i < 100; i++) {
+  const randomToken = generateRandomString(32);
+  attempts.push(
+    fetch(`${API_URL}/shares/shared/${randomToken}`)
+      .then(res => ({ token: randomToken, status: res.status }))
+  );
+}
+
+const results = await Promise.all(attempts);
+
+// All should return 404
+expect(results.every(r => r.status === 404)).toBe(true);
+
+// Check for rate limiting (optional based on implementation)
+// After many requests, some might return 429 Too Many Requests
+          ]]></implementation>
+        </test>
+
+        <test name="should enforce expiration times">
+          <implementation><![CDATA[
+// Create share with 1 hour expiration
+const shareId = await createShareWithExpiration(1);
+
+// Manually update database to expire the share
+await expireShare(shareId);
+
+// Try to access expired share
+const response = await fetch(`${API_URL}/workspaces/${workspaceId}`, {
+  headers: {
+    'Authorization': `Bearer ${recipientToken}`
+  }
+});
+
+expect(response.status).toBe(403);
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+  </security-tests>
+
+  <performance-tests>
+    <test-file path="tests/performance/sharing-performance.test.ts">
+      <test-suite name="Sharing Performance Tests">
+        <test name="should handle many shares efficiently">
+          <implementation><![CDATA[
+const ownerId = 'perf_test_owner';
+const workspaceId = await createLargeWorkspace(ownerId);
+
+// Share with many users
+const sharePromises = [];
+const startTime = Date.now();
+
+for (let i = 0; i < 100; i++) {
+  const recipientId = `recipient_${i}`;
+  await createTestUser(recipientId);
+  
+  sharePromises.push(
+    shareWorkspace(workspaceId, ownerId, recipientId)
+  );
+}
+
+await Promise.all(sharePromises);
+const shareTime = Date.now() - startTime;
+
+// Should complete in reasonable time
+expect(shareTime).toBeLessThan(5000); // 5 seconds for 100 shares
+
+// Query performance
+const queryStart = Date.now();
+const shares = await getWorkspaceShares(workspaceId);
+const queryTime = Date.now() - queryStart;
+
+expect(shares.length).toBe(100);
+expect(queryTime).toBeLessThan(100); // Query should be fast
+          ]]></implementation>
+        </test>
+
+        <test name="should handle concurrent access efficiently">
+          <implementation><![CDATA[
+const sharedWorkspaceId = await createSharedWorkspace();
+const accessTokens = await createMultipleViewers(50);
+
+// Simulate concurrent access
+const accessPromises = accessTokens.map(token =>
+  fetch(`${API_URL}/workspaces/${sharedWorkspaceId}`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+);
+
+const startTime = Date.now();
+const responses = await Promise.all(accessPromises);
+const totalTime = Date.now() - startTime;
+
+// All should succeed
+expect(responses.every(r => r.status === 200)).toBe(true);
+
+// Should handle concurrent load
+expect(totalTime).toBeLessThan(2000); // 2 seconds for 50 concurrent requests
+          ]]></implementation>
+        </test>
+
+        <test name="should paginate large share lists">
+          <implementation><![CDATA[
+// User with many shared workspaces
+const userId = await createUserWithManyShares(200);
+
+const response = await fetch(`${API_URL}/shares/shared-with-me?page=1&limit=20`, {
+  headers: { 'Authorization': `Bearer ${userToken}` }
+});
+
+const data = await response.json();
+expect(data.workspaces.length).toBe(20);
+expect(data.pagination).toEqual({
+  page: 1,
+  limit: 20,
+  total: 200,
+  pages: 10
+});
+
+// Response should be fast even with many shares
+expect(response.headers.get('X-Response-Time')).toBeLessThan(100);
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+  </performance-tests>
+
+  <ui-polish>
+    <file path="src/styles/sharing-polish.css">
+      <content><![CDATA[
+/* Smooth transitions and animations */
+.share-dialog-overlay {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.share-dialog {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Loading states */
+.share-button.loading,
+.generate-link-button.loading {
+  position: relative;
+  color: transparent;
+}
+
+.share-button.loading::after,
+.generate-link-button.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin: -8px 0 0 -8px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Success states */
+.share-success {
+  animation: successPulse 0.5s ease-out;
+}
+
+@keyframes successPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* Error states */
+.error-shake {
+  animation: shake 0.5s ease-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* Tooltips */
+.tooltip {
+  position: relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+}
+
+/* Improved focus states */
+.share-dialog input:focus,
+.share-dialog select:focus,
+.share-dialog button:focus {
+  outline: 2px solid #2196F3;
+  outline-offset: 2px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .share-dialog {
+    background: #1e1e1e;
+    color: #e0e0e0;
+  }
+  
+  .share-dialog-header {
+    border-bottom-color: #333;
+  }
+  
+  .share-dialog input,
+  .share-dialog select {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #e0e0e0;
+  }
+  
+  .search-results {
+    background: #2a2a2a;
+    border-color: #444;
+  }
+  
+  .search-result-item:hover {
+    background-color: #333;
+  }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 600px) {
+  .share-dialog {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+  
+  .share-dialog-content {
+    padding: 15px;
+  }
+  
+  .tab-button {
+    flex: 1;
+    padding: 10px 5px;
+    font-size: 13px;
+  }
+}
+
+/* Accessibility improvements */
+.share-dialog [aria-hidden="true"] {
+  display: none;
+}
+
+.share-dialog .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .share-dialog {
+    border: 2px solid;
+  }
+  
+  .share-button,
+  .revoke-button {
+    border: 1px solid;
+  }
+}
+      ]]></content>
+    </file>
+  </ui-polish>
+
+  <error-handling-improvements>
+    <file path="src/utils/share-error-handler.ts">
+      <content><![CDATA[
+import { Logger } from './logger';
+import { ErrorFactory } from '../types/errors';
+
+export class ShareErrorHandler {
+  private static logger = new Logger('ShareErrorHandler', 'error');
+  
+  static handleShareError(error: any, context: string): string {
+    const correlationId = this.logger.generateCorrelationId();
+    this.logger.logError(`Share error in ${context}`, error, { correlationId });
+    
+    // User-friendly error messages
+    if (error.status === 401) {
+      return 'Please log in to share workspaces';
+    }
+    
+    if (error.status === 403) {
+      return 'You do not have permission to perform this action';
+    }
+    
+    if (error.status === 404) {
+      return 'The requested resource was not found';
+    }
+    
+    if (error.status === 409) {
+      return 'This workspace is already shared with that user';
+    }
+    
+    if (error.status === 429) {
+      return 'Too many requests. Please try again later';
+    }
+    
+    if (error.message?.includes('network')) {
+      return 'Network error. Please check your connection';
+    }
+    
+    if (error.message?.includes('expired')) {
+      return 'This share link has expired';
+    }
+    
+    // Generic fallback
+    return 'An error occurred. Please try again';
+  }
+  
+  static showErrorNotification(message: string, duration: number = 5000): void {
+    const notification = document.createElement('div');
+    notification.className = 'error-notification';
+    notification.setAttribute('role', 'alert');
+    notification.innerHTML = `
+      <svg class="error-icon" width="20" height="20" viewBox="0 0 24 24">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+      </svg>
+      <span>${message}</span>
+      <button class="dismiss-button" aria-label="Dismiss">×</button>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Animate in
+    requestAnimationFrame(() => {
+      notification.classList.add('show');
+    });
+    
+    // Dismiss handler
+    const dismissButton = notification.querySelector('.dismiss-button');
+    dismissButton?.addEventListener('click', () => {
+      this.dismissNotification(notification);
+    });
+    
+    // Auto dismiss
+    setTimeout(() => {
+      this.dismissNotification(notification);
+    }, duration);
+  }
+  
+  private static dismissNotification(notification: HTMLElement): void {
+    notification.classList.remove('show');
+    setTimeout(() => notification.remove(), 300);
+  }
+}
+      ]]></content>
+    </file>
+  </error-handling-improvements>
+
+  <documentation-updates>
+    <file path="docs/SHARING_GUIDE.md">
+      <content><![CDATA[
+# Workspace Sharing Guide
+
+## Overview
+
+The workspace sharing feature allows you to share your node graphs with other users in view-only mode. This guide covers all aspects of the sharing system.
+
+## Table of Contents
+
+1. [Sharing with Users](#sharing-with-users)
+2. [Share Links](#share-links)
+3. [Managing Shares](#managing-shares)
+4. [Viewing Shared Workspaces](#viewing-shared-workspaces)
+5. [Security & Privacy](#security--privacy)
+6. [Troubleshooting](#troubleshooting)
+
+## Sharing with Users
+
+### How to Share
+
+1. Click the share icon (⋮) next to any workspace in your sidebar
+2. In the Share Dialog, search for users by their username
+3. Click "Share" next to the user you want to share with
+4. The user will immediately have access to view your workspace
+
+### What Recipients Can Do
+
+- View all nodes and their content
+- Navigate the graph (pan, zoom)
+- Export the workspace (if enabled)
+- See when the workspace was last updated
+
+### What Recipients Cannot Do
+
+- Edit any content
+- Add or remove nodes
+- Change node positions
+- Submit prompts to AI
+- Share with other users
+
+## Share Links
+
+### Creating Share Links
+
+1. Open the Share Dialog
+2. Switch to the "Link Sharing" tab
+3. Configure your preferences:
+   - **Require login**: Whether users need an account to view
+   - **Expiration**: How long the link remains active
+4. Click "Generate Link"
+5. The link is automatically copied to your clipboard
+
+### Link Options
+
+- **Public Links**: Anyone with the link can view (no login required)
+- **Private Links**: Viewers must have an account and be logged in
+- **Temporary Links**: Set expiration from 1 hour to 1 month
+- **Permanent Links**: Never expire (can be revoked manually)
+
+## Managing Shares
+
+### View Active Shares
+
+In the Share Dialog's "Direct Shares" tab, you can see:
+- Who has access to your workspace
+- When you shared it with them
+- When they last accessed it
+
+### Revoke Access
+
+- Click "Revoke" next to any user to remove their access
+- For share links, switch to "Link Sharing" tab and click "Revoke"
+- Revoked users/links lose access immediately
+
+### Activity Tracking
+
+The "Activity" tab shows:
+- Who accessed your workspace
+- When they accessed it
+- What actions they performed (viewed, exported)
+
+## Viewing Shared Workspaces
+
+### Finding Shared Workspaces
+
+Workspaces shared with you appear in a separate section of your sidebar labeled "Shared with me".
+
+### Visual Indicators
+
+When viewing a shared workspace:
+- Blue banner at the top showing "View-only mode"
+- Owner's username is displayed
+- All editing controls are hidden
+- Nodes have a subtle visual difference
+
+### Leaving Shared Workspaces
+
+Click the "Leave" button in the blue banner to stop viewing a shared workspace. You can always access it again from your sidebar.
+
+## Security & Privacy
+
+### Your Data is Protected
+
+- Only you can share your workspaces
+- Recipients cannot modify your content
+- All shares can be revoked at any time
+- Share links use cryptographically secure tokens
+
+### Best Practices
+
+1. **Review shares regularly**: Check who has access to your workspaces
+2. **Use expiring links**: For temporary sharing, set an expiration
+3. **Require login**: For sensitive content, require authentication
+4. **Monitor activity**: Check the activity log for unusual access
+
+### Privacy Settings
+
+You can control sharing at multiple levels:
+- Disable all sharing for a workspace
+- Require login for all share links
+- Set default expiration times
+
+## Troubleshooting
+
+### Common Issues
+
+**"User not found" when searching**
+- Ensure you're typing the exact username
+- The user must have an account on the platform
+- Search requires at least 2 characters
+
+**"Cannot share workspace"**
+- You must own the workspace to share it
+- The workspace cannot be deleted
+- Check if you've reached sharing limits
+
+**Share link not working**
+- Link may have expired
+- Workspace might have been deleted
+- Login may be required
+
+**Cannot see shared workspace**
+- Refresh your browser
+- Check "Shared with me" section
+- Ensure you're logged in with the correct account
+
+### Getting Help
+
+If you encounter issues not covered here:
+1. Check the [API documentation](./API_SHARING.md)
+2. Review error messages in the browser console
+3. Contact support with your correlation ID
+
+## Advanced Features
+
+### Keyboard Shortcuts
+
+When viewing shared workspaces:
+- `Space`: Pan mode
+- `Ctrl/Cmd + 0`: Reset zoom
+- `Ctrl/Cmd + =`: Zoom in
+- `Ctrl/Cmd + -`: Zoom out
+
+### URL Parameters
+
+Share links support additional parameters:
+- `?zoom=0.5`: Set initial zoom level
+- `?center=node_123`: Center on specific node
+- `?theme=dark`: Force dark mode
+
+### API Access
+
+Developers can use the sharing API to:
+- Programmatically share workspaces
+- Generate share links
+- Monitor access logs
+
+See [API Documentation](./API_SHARING.md) for details.
+      ]]></content>
+    </file>
+
+    <file path="CLAUDE.md" modifications="true">
+      <add-section name="Workspace Sharing">
+        <content><![CDATA[
+## Workspace Sharing
+
+**Overview:**
+The workspace sharing feature allows users to share their node graphs with others in view-only mode. This includes both direct user-to-user sharing and shareable links.
+
+**Key Components:**
+- `ShareService` (server-src/services/share-service.ts): Backend service managing shares
+- `ShareDialog` (src/components/share-dialog.ts): UI for managing shares
+- `share-routes.ts` (server-src/routes/share-routes.ts): API endpoints
+- Read-only mode in GraphEditor: Enforces view-only access
+
+**Database Tables:**
+- `workspace_shares`: Direct user-to-user shares
+- `share_links`: Public/private shareable links
+- `share_activity`: Audit log of share access
+
+**Security Model:**
+- All shares are view-only (no edit permissions)
+- Owners have full control over their shares
+- Share links use cryptographically secure tokens
+- Optional authentication requirement for links
+- Automatic expiration support
+
+**API Endpoints:**
+- `GET /api/shares/users/search`: Search for users to share with
+- `POST /api/shares/workspaces/:id/shares`: Create a share
+- `DELETE /api/shares/workspaces/:id/shares/:userId`: Revoke share
+- `GET /api/shares/shared-with-me`: List workspaces shared with me
+- `POST /api/shares/workspaces/:id/share-link`: Generate share link
+- `GET /api/shares/shared/:token`: Access via share link
+
+**Frontend Features:**
+- ShareDialog with three tabs: Direct Shares, Link Sharing, Activity
+- User search with debouncing
+- Visual indicators for shared workspaces
+- Read-only mode with disabled controls
+- Shared workspaces section in sidebar
+
+**Testing:**
+- Comprehensive unit tests for ShareService
+- Integration tests for API endpoints
+- E2E tests for complete sharing workflow
+- Security tests for access control
+- Performance tests for concurrent access
+        ]]></content>
+      </add-section>
+    </file>
+  </documentation-updates>
+
+  <final-checklist>
+    <category name="Functionality">
+      <item>User search works with partial matching</item>
+      <item>Shares can be created and revoked</item>
+      <item>Share links can be generated with options</item>
+      <item>Read-only mode properly enforced</item>
+      <item>Activity tracking captures all events</item>
+      <item>Expiration times are enforced</item>
+      <item>Shared workspaces appear in sidebar</item>
+    </category>
+    
+    <category name="Security">
+      <item>No unauthorized access possible</item>
+      <item>No privilege escalation vulnerabilities</item>
+      <item>Share tokens are cryptographically secure</item>
+      <item>Rate limiting prevents abuse</item>
+      <item>SQL injection prevention</item>
+      <item>XSS protection in place</item>
+    </category>
+    
+    <category name="Performance">
+      <item>User search responds quickly</item>
+      <item>Many shares handled efficiently</item>
+      <item>Concurrent access scales well</item>
+      <item>Database queries optimized</item>
+      <item>No memory leaks</item>
+    </category>
+    
+    <category name="User Experience">
+      <item>Intuitive share dialog</item>
+      <item>Clear visual indicators</item>
+      <item>Smooth animations</item>
+      <item>Helpful error messages</item>
+      <item>Mobile responsive</item>
+      <item>Keyboard accessible</item>
+      <item>Screen reader compatible</item>
+    </category>
+    
+    <category name="Documentation">
+      <item>User guide complete</item>
+      <item>API documentation updated</item>
+      <item>CLAUDE.md updated</item>
+      <item>Code comments added</item>
+      <item>Test coverage adequate</item>
+    </category>
+  </final-checklist>
+
+  <deliverables>
+    <deliverable type="testing">
+      <item>Complete E2E test suite</item>
+      <item>Security penetration tests</item>
+      <item>Performance benchmarks</item>
+      <item>Cross-browser compatibility tests</item>
+    </deliverable>
+    
+    <deliverable type="ui-polish">
+      <item>Smooth animations and transitions</item>
+      <item>Loading states for all operations</item>
+      <item>Error notifications with retry options</item>
+      <item>Success feedback for actions</item>
+    </deliverable>
+    
+    <deliverable type="documentation">
+      <item>Comprehensive user guide</item>
+      <item>Developer API documentation</item>
+      <item>Security best practices guide</item>
+      <item>Troubleshooting guide</item>
+    </deliverable>
+    
+    <deliverable type="monitoring">
+      <item>Performance metrics tracking</item>
+      <item>Error rate monitoring</item>
+      <item>Usage analytics</item>
+      <item>Security audit logs</item>
+    </deliverable>
+  </deliverables>
+
+  <success-criteria>
+    <criterion>All E2E tests pass consistently</criterion>
+    <criterion>No security vulnerabilities found</criterion>
+    <criterion>Performance meets targets (< 100ms API response)</criterion>
+    <criterion>UI is intuitive and requires no training</criterion>
+    <criterion>Error rate below 0.1%</criterion>
+    <criterion>Documentation covers all use cases</criterion>
+    <criterion>Feature ready for production deployment</criterion>
+  </success-criteria>
+</phase-implementation>

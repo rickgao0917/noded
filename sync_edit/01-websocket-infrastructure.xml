@@ -1,0 +1,869 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<specification>
+  <title>WebSocket Infrastructure for Real-time Collaboration</title>
+  <version>1.0</version>
+  <date>2025-06-24</date>
+  
+  <overview>
+    <description>
+      Implement WebSocket-based real-time communication infrastructure using Socket.IO
+      to enable live collaboration features including node locking, presence awareness,
+      and synchronized editing.
+    </description>
+    <key-features>
+      <feature>Bi-directional real-time communication</feature>
+      <feature>Room-based workspace isolation</feature>
+      <feature>Automatic reconnection handling</feature>
+      <feature>Presence management</feature>
+      <feature>Event queuing during disconnection</feature>
+    </key-features>
+  </overview>
+
+  <server-implementation>
+    <file path="server-src/services/websocket-service.ts">
+      <description>Core WebSocket service managing all real-time connections</description>
+      <code><![CDATA[
+import { Server as SocketIOServer } from 'socket.io';
+import { Server as HTTPServer } from 'http';
+import { DatabaseService } from './database-service';
+import { AuthenticationService } from './authentication-service';
+import { NodeLockService } from './node-lock-service';
+import { Logger } from '../utils/logger';
+
+interface SocketData {
+  userId: string;
+  username: string;
+  workspaceId: string | null;
+  sessionToken: string;
+}
+
+interface CollaborationEvent {
+  type: 'node-lock' | 'node-unlock' | 'node-update' | 'cursor-move' | 'presence';
+  nodeId?: string;
+  data: any;
+  timestamp: number;
+  userId: string;
+  username: string;
+}
+
+export class WebSocketService {
+  private io: SocketIOServer;
+  private logger: Logger;
+  private db: DatabaseService;
+  private auth: AuthenticationService;
+  private lockService: NodeLockService;
+  private activeConnections: Map<string, SocketData> = new Map();
+  
+  constructor(httpServer: HTTPServer) {
+    this.logger = new Logger('WebSocketService');
+    this.db = DatabaseService.getInstance();
+    this.auth = AuthenticationService.getInstance();
+    this.lockService = new NodeLockService();
+    
+    this.io = new SocketIOServer(httpServer, {
+      cors: {
+        origin: process.env.CLIENT_URL || 'http://localhost:8000',
+        credentials: true
+      },
+      pingTimeout: 60000,
+      pingInterval: 25000
+    });
+    
+    this.setupMiddleware();
+    this.setupEventHandlers();
+    this.startHeartbeat();
+  }
+  
+  private setupMiddleware(): void {
+    // Authentication middleware
+    this.io.use(async (socket, next) => {
+      try {
+        const token = socket.handshake.auth.token;
+        if (!token) {
+          return next(new Error('Authentication required'));
+        }
+        
+        const session = await this.auth.validateSession(token);
+        if (!session) {
+          return next(new Error('Invalid session'));
+        }
+        
+        // Attach user data to socket
+        (socket as any).userId = session.userId;
+        (socket as any).username = session.username;
+        (socket as any).sessionToken = token;
+        
+        next();
+      } catch (error) {
+        next(new Error('Authentication failed'));
+      }
+    });
+  }
+  
+  private setupEventHandlers(): void {
+    this.io.on('connection', (socket) => {
+      const userId = (socket as any).userId;
+      const username = (socket as any).username;
+      
+      this.logger.info('Client connected', { socketId: socket.id, userId, username });
+      
+      // Store connection data
+      this.activeConnections.set(socket.id, {
+        userId,
+        username,
+        workspaceId: null,
+        sessionToken: (socket as any).sessionToken
+      });
+      
+      // Join workspace room
+      socket.on('join-workspace', async (workspaceId: string) => {
+        await this.handleJoinWorkspace(socket, workspaceId);
+      });
+      
+      // Leave workspace room
+      socket.on('leave-workspace', async () => {
+        await this.handleLeaveWorkspace(socket);
+      });
+      
+      // Node lock request
+      socket.on('node-lock-request', async (data: { nodeId: string; lockType: string }) => {
+        await this.handleNodeLockRequest(socket, data);
+      });
+      
+      // Node lock release
+      socket.on('node-lock-release', async (data: { nodeId: string }) => {
+        await this.handleNodeLockRelease(socket, data);
+      });
+      
+      // Node update broadcast
+      socket.on('node-update', async (data: any) => {
+        await this.handleNodeUpdate(socket, data);
+      });
+      
+      // Cursor position update
+      socket.on('cursor-position', async (data: any) => {
+        await this.handleCursorPosition(socket, data);
+      });
+      
+      // Heartbeat
+      socket.on('heartbeat', () => {
+        this.updateHeartbeat(socket.id);
+      });
+      
+      // Disconnect handling
+      socket.on('disconnect', async (reason) => {
+        await this.handleDisconnect(socket, reason);
+      });
+    });
+  }
+  
+  private async handleJoinWorkspace(socket: any, workspaceId: string): Promise<void> {
+    const connectionData = this.activeConnections.get(socket.id);
+    if (!connectionData) return;
+    
+    try {
+      // Verify user has access to workspace
+      const hasAccess = await this.verifyWorkspaceAccess(connectionData.userId, workspaceId);
+      if (!hasAccess) {
+        socket.emit('error', { message: 'Access denied to workspace' });
+        return;
+      }
+      
+      // Leave previous workspace if any
+      if (connectionData.workspaceId) {
+        socket.leave(`workspace:${connectionData.workspaceId}`);
+        await this.broadcastPresenceUpdate(connectionData.workspaceId);
+      }
+      
+      // Join new workspace room
+      socket.join(`workspace:${workspaceId}`);
+      connectionData.workspaceId = workspaceId;
+      
+      // Send current state to the joining user
+      const currentState = await this.getWorkspaceState(workspaceId);
+      socket.emit('workspace-state', currentState);
+      
+      // Broadcast presence update
+      await this.broadcastPresenceUpdate(workspaceId);
+      
+      // Log to database
+      await this.db.run(
+        'INSERT INTO active_sessions (id, user_id, workspace_id, socket_id, connected_at, last_heartbeat) VALUES (?, ?, ?, ?, datetime("now"), datetime("now"))',
+        [`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, connectionData.userId, workspaceId, socket.id]
+      );
+      
+    } catch (error) {
+      this.logger.error('Failed to join workspace', error);
+      socket.emit('error', { message: 'Failed to join workspace' });
+    }
+  }
+  
+  private async handleLeaveWorkspace(socket: any): Promise<void> {
+    const connectionData = this.activeConnections.get(socket.id);
+    if (!connectionData || !connectionData.workspaceId) return;
+    
+    const workspaceId = connectionData.workspaceId;
+    
+    // Release all locks held by this user
+    await this.lockService.releaseUserLocks(connectionData.userId, workspaceId);
+    
+    // Leave room
+    socket.leave(`workspace:${workspaceId}`);
+    connectionData.workspaceId = null;
+    
+    // Update presence
+    await this.broadcastPresenceUpdate(workspaceId);
+    
+    // Remove from active sessions
+    await this.db.run('DELETE FROM active_sessions WHERE socket_id = ?', [socket.id]);
+  }
+  
+  private async handleNodeLockRequest(socket: any, data: { nodeId: string; lockType: string }): Promise<void> {
+    const connectionData = this.activeConnections.get(socket.id);
+    if (!connectionData || !connectionData.workspaceId) {
+      socket.emit('node-lock-response', { success: false, error: 'Not in a workspace' });
+      return;
+    }
+    
+    try {
+      const lock = await this.lockService.acquireLock(
+        data.nodeId,
+        connectionData.workspaceId,
+        connectionData.userId,
+        connectionData.username,
+        data.lockType || 'edit'
+      );
+      
+      if (lock.success) {
+        // Notify all users in workspace
+        this.io.to(`workspace:${connectionData.workspaceId}`).emit('node-locked', {
+          nodeId: data.nodeId,
+          lockedBy: {
+            userId: connectionData.userId,
+            username: connectionData.username
+          },
+          lockType: data.lockType,
+          expiresAt: lock.expiresAt
+        });
+        
+        socket.emit('node-lock-response', { success: true, lock });
+      } else {
+        socket.emit('node-lock-response', { 
+          success: false, 
+          error: lock.error,
+          currentLock: lock.currentLock 
+        });
+      }
+    } catch (error) {
+      this.logger.error('Failed to acquire lock', error);
+      socket.emit('node-lock-response', { success: false, error: 'Internal error' });
+    }
+  }
+  
+  private async handleNodeLockRelease(socket: any, data: { nodeId: string }): Promise<void> {
+    const connectionData = this.activeConnections.get(socket.id);
+    if (!connectionData || !connectionData.workspaceId) return;
+    
+    try {
+      const released = await this.lockService.releaseLock(
+        data.nodeId,
+        connectionData.userId
+      );
+      
+      if (released) {
+        // Notify all users in workspace
+        this.io.to(`workspace:${connectionData.workspaceId}`).emit('node-unlocked', {
+          nodeId: data.nodeId,
+          unlockedBy: {
+            userId: connectionData.userId,
+            username: connectionData.username
+          }
+        });
+      }
+    } catch (error) {
+      this.logger.error('Failed to release lock', error);
+    }
+  }
+  
+  private async handleNodeUpdate(socket: any, data: any): Promise<void> {
+    const connectionData = this.activeConnections.get(socket.id);
+    if (!connectionData || !connectionData.workspaceId) return;
+    
+    // Verify user has lock on the node
+    const hasLock = await this.lockService.verifyLock(data.nodeId, connectionData.userId);
+    if (!hasLock) {
+      socket.emit('error', { message: 'Node is locked by another user' });
+      return;
+    }
+    
+    // Broadcast update to all other users in workspace
+    socket.to(`workspace:${connectionData.workspaceId}`).emit('node-updated', {
+      nodeId: data.nodeId,
+      changes: data.changes,
+      updatedBy: {
+        userId: connectionData.userId,
+        username: connectionData.username
+      },
+      timestamp: Date.now()
+    });
+    
+    // Renew lock timeout
+    await this.lockService.renewLock(data.nodeId, connectionData.userId);
+  }
+  
+  private async handleCursorPosition(socket: any, data: any): Promise<void> {
+    const connectionData = this.activeConnections.get(socket.id);
+    if (!connectionData || !connectionData.workspaceId) return;
+    
+    // Broadcast cursor position to others in workspace
+    socket.to(`workspace:${connectionData.workspaceId}`).emit('cursor-moved', {
+      userId: connectionData.userId,
+      username: connectionData.username,
+      nodeId: data.nodeId,
+      position: data.position,
+      color: data.color || this.getUserColor(connectionData.userId)
+    });
+  }
+  
+  private async handleDisconnect(socket: any, reason: string): Promise<void> {
+    const connectionData = this.activeConnections.get(socket.id);
+    if (!connectionData) return;
+    
+    this.logger.info('Client disconnected', { 
+      socketId: socket.id, 
+      userId: connectionData.userId,
+      reason 
+    });
+    
+    // Release all locks
+    if (connectionData.workspaceId) {
+      await this.lockService.releaseUserLocks(connectionData.userId, connectionData.workspaceId);
+      await this.broadcastPresenceUpdate(connectionData.workspaceId);
+    }
+    
+    // Clean up
+    this.activeConnections.delete(socket.id);
+    await this.db.run('DELETE FROM active_sessions WHERE socket_id = ?', [socket.id]);
+  }
+  
+  private async broadcastPresenceUpdate(workspaceId: string): Promise<void> {
+    const activeUsers = await this.getActiveUsers(workspaceId);
+    this.io.to(`workspace:${workspaceId}`).emit('presence-update', { activeUsers });
+  }
+  
+  private async getActiveUsers(workspaceId: string): Promise<any[]> {
+    const users = [];
+    for (const [socketId, data] of this.activeConnections) {
+      if (data.workspaceId === workspaceId) {
+        users.push({
+          userId: data.userId,
+          username: data.username,
+          color: this.getUserColor(data.userId),
+          connectedAt: new Date().toISOString()
+        });
+      }
+    }
+    return users;
+  }
+  
+  private async getWorkspaceState(workspaceId: string): Promise<any> {
+    const locks = await this.lockService.getWorkspaceLocks(workspaceId);
+    const activeUsers = await this.getActiveUsers(workspaceId);
+    
+    return {
+      workspaceId,
+      locks,
+      activeUsers,
+      timestamp: Date.now()
+    };
+  }
+  
+  private async verifyWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean> {
+    // Check if user owns or has access to workspace
+    const workspace = await this.db.get(
+      'SELECT * FROM workspaces WHERE id = ? AND (user_id = ? OR id IN (SELECT workspace_id FROM workspace_shares WHERE shared_with_user_id = ?))',
+      [workspaceId, userId, userId]
+    );
+    return !!workspace;
+  }
+  
+  private getUserColor(userId: string): string {
+    // Generate consistent color for user
+    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57', '#FF9FF3'];
+    const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return colors[hash % colors.length];
+  }
+  
+  private updateHeartbeat(socketId: string): void {
+    const connectionData = this.activeConnections.get(socketId);
+    if (connectionData) {
+      this.db.run(
+        'UPDATE active_sessions SET last_heartbeat = datetime("now") WHERE socket_id = ?',
+        [socketId]
+      );
+    }
+  }
+  
+  private startHeartbeat(): void {
+    // Clean up stale connections every 30 seconds
+    setInterval(async () => {
+      const staleThreshold = new Date(Date.now() - 90000); // 90 seconds
+      
+      const staleSessions = await this.db.all(
+        'SELECT * FROM active_sessions WHERE last_heartbeat < ?',
+        [staleThreshold.toISOString()]
+      );
+      
+      for (const session of staleSessions) {
+        // Force disconnect if still connected
+        const socket = this.io.sockets.sockets.get(session.socket_id);
+        if (socket) {
+          socket.disconnect(true);
+        }
+        
+        // Clean up locks
+        await this.lockService.releaseUserLocks(session.user_id, session.workspace_id);
+        
+        // Remove from database
+        await this.db.run('DELETE FROM active_sessions WHERE id = ?', [session.id]);
+      }
+    }, 30000);
+  }
+}
+      ]]></code>
+    </file>
+
+    <file path="server.js">
+      <description>Modify existing server.js to integrate WebSocket</description>
+      <modifications><![CDATA[
+// Add after express app creation
+const http = require('http');
+const server = http.createServer(app);
+
+// Import and initialize WebSocket service
+const { WebSocketService } = require('./dist-server/services/websocket-service');
+const wsService = new WebSocketService(server);
+
+// Change app.listen to server.listen
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log('WebSocket server initialized');
+});
+      ]]></modifications>
+    </file>
+
+    <dependencies>
+      <package name="socket.io" version="^4.7.2" />
+      <package name="@types/socket.io" version="^3.0.2" dev="true" />
+    </dependencies>
+  </server-implementation>
+
+  <client-implementation>
+    <file path="src/services/collaboration-service.ts">
+      <description>Client-side WebSocket connection management</description>
+      <code><![CDATA[
+import { io, Socket } from 'socket.io-client';
+import { Logger } from '../utils/logger';
+import { SessionManager } from './session-manager';
+import { EventEmitter } from '../utils/event-emitter';
+
+export interface CollaborationEvent {
+  type: string;
+  data: any;
+  userId: string;
+  username: string;
+  timestamp: number;
+}
+
+export interface ActiveUser {
+  userId: string;
+  username: string;
+  color: string;
+  connectedAt: string;
+}
+
+export interface NodeLock {
+  nodeId: string;
+  lockedBy: {
+    userId: string;
+    username: string;
+  };
+  lockType: string;
+  expiresAt: string;
+}
+
+export class CollaborationService extends EventEmitter {
+  private static instance: CollaborationService;
+  private socket: Socket | null = null;
+  private logger: Logger;
+  private sessionManager: SessionManager;
+  private currentWorkspaceId: string | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private eventQueue: CollaborationEvent[] = [];
+  private isConnected = false;
+  
+  private constructor() {
+    super();
+    this.logger = new Logger('CollaborationService');
+    this.sessionManager = SessionManager.getInstance();
+  }
+  
+  public static getInstance(): CollaborationService {
+    if (!CollaborationService.instance) {
+      CollaborationService.instance = new CollaborationService();
+    }
+    return CollaborationService.instance;
+  }
+  
+  public async connect(): Promise<void> {
+    const session = this.sessionManager.getSession();
+    if (!session) {
+      throw new Error('No active session');
+    }
+    
+    this.logger.info('Connecting to WebSocket server');
+    
+    this.socket = io(window.location.origin, {
+      auth: {
+        token: session.sessionToken
+      },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: this.maxReconnectAttempts
+    });
+    
+    this.setupEventHandlers();
+  }
+  
+  private setupEventHandlers(): void {
+    if (!this.socket) return;
+    
+    this.socket.on('connect', () => {
+      this.logger.info('Connected to WebSocket server');
+      this.isConnected = true;
+      this.reconnectAttempts = 0;
+      
+      // Rejoin workspace if we were in one
+      if (this.currentWorkspaceId) {
+        this.joinWorkspace(this.currentWorkspaceId);
+      }
+      
+      // Process queued events
+      this.processEventQueue();
+      
+      this.emit('connection-status', { status: 'connected' });
+    });
+    
+    this.socket.on('disconnect', (reason) => {
+      this.logger.warn('Disconnected from WebSocket server', { reason });
+      this.isConnected = false;
+      this.emit('connection-status', { status: 'disconnected', reason });
+    });
+    
+    this.socket.on('connect_error', (error) => {
+      this.logger.error('Connection error', error);
+      this.reconnectAttempts++;
+      
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        this.emit('connection-status', { 
+          status: 'failed', 
+          error: 'Max reconnection attempts reached' 
+        });
+      }
+    });
+    
+    // Workspace events
+    this.socket.on('workspace-state', (data) => {
+      this.emit('workspace-state', data);
+    });
+    
+    // Lock events
+    this.socket.on('node-locked', (data) => {
+      this.emit('node-locked', data);
+    });
+    
+    this.socket.on('node-unlocked', (data) => {
+      this.emit('node-unlocked', data);
+    });
+    
+    this.socket.on('node-lock-response', (data) => {
+      this.emit('node-lock-response', data);
+    });
+    
+    // Update events
+    this.socket.on('node-updated', (data) => {
+      this.emit('node-updated', data);
+    });
+    
+    // Presence events
+    this.socket.on('presence-update', (data) => {
+      this.emit('presence-update', data);
+    });
+    
+    this.socket.on('cursor-moved', (data) => {
+      this.emit('cursor-moved', data);
+    });
+    
+    // Error handling
+    this.socket.on('error', (error) => {
+      this.logger.error('Socket error', error);
+      this.emit('error', error);
+    });
+    
+    // Heartbeat
+    setInterval(() => {
+      if (this.isConnected && this.socket) {
+        this.socket.emit('heartbeat');
+      }
+    }, 30000);
+  }
+  
+  public async joinWorkspace(workspaceId: string): Promise<void> {
+    this.logger.info('Joining workspace', { workspaceId });
+    
+    if (!this.socket || !this.isConnected) {
+      throw new Error('Not connected to server');
+    }
+    
+    // Leave current workspace if any
+    if (this.currentWorkspaceId && this.currentWorkspaceId !== workspaceId) {
+      this.leaveWorkspace();
+    }
+    
+    this.currentWorkspaceId = workspaceId;
+    this.socket.emit('join-workspace', workspaceId);
+  }
+  
+  public leaveWorkspace(): void {
+    if (!this.socket || !this.currentWorkspaceId) return;
+    
+    this.logger.info('Leaving workspace', { workspaceId: this.currentWorkspaceId });
+    this.socket.emit('leave-workspace');
+    this.currentWorkspaceId = null;
+  }
+  
+  public async requestNodeLock(nodeId: string, lockType: string = 'edit'): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket || !this.isConnected) {
+        reject(new Error('Not connected to server'));
+        return;
+      }
+      
+      const timeout = setTimeout(() => {
+        reject(new Error('Lock request timeout'));
+      }, 5000);
+      
+      const handler = (response: any) => {
+        clearTimeout(timeout);
+        this.off('node-lock-response', handler);
+        
+        if (response.success) {
+          resolve(true);
+        } else {
+          reject(new Error(response.error || 'Failed to acquire lock'));
+        }
+      };
+      
+      this.on('node-lock-response', handler);
+      this.socket.emit('node-lock-request', { nodeId, lockType });
+    });
+  }
+  
+  public releaseNodeLock(nodeId: string): void {
+    if (!this.socket || !this.isConnected) {
+      this.queueEvent({
+        type: 'node-lock-release',
+        data: { nodeId },
+        userId: this.sessionManager.getSession()?.userId || '',
+        username: this.sessionManager.getSession()?.username || '',
+        timestamp: Date.now()
+      });
+      return;
+    }
+    
+    this.socket.emit('node-lock-release', { nodeId });
+  }
+  
+  public broadcastNodeUpdate(nodeId: string, changes: any): void {
+    const event: CollaborationEvent = {
+      type: 'node-update',
+      data: { nodeId, changes },
+      userId: this.sessionManager.getSession()?.userId || '',
+      username: this.sessionManager.getSession()?.username || '',
+      timestamp: Date.now()
+    };
+    
+    if (!this.socket || !this.isConnected) {
+      this.queueEvent(event);
+      return;
+    }
+    
+    this.socket.emit('node-update', event.data);
+  }
+  
+  public updateCursorPosition(nodeId: string, position: any): void {
+    if (!this.socket || !this.isConnected) return;
+    
+    this.socket.emit('cursor-position', { nodeId, position });
+  }
+  
+  private queueEvent(event: CollaborationEvent): void {
+    this.eventQueue.push(event);
+    
+    // Limit queue size
+    if (this.eventQueue.length > 100) {
+      this.eventQueue.shift();
+    }
+  }
+  
+  private processEventQueue(): void {
+    if (!this.socket || !this.isConnected) return;
+    
+    while (this.eventQueue.length > 0) {
+      const event = this.eventQueue.shift();
+      if (!event) continue;
+      
+      switch (event.type) {
+        case 'node-update':
+          this.socket.emit('node-update', event.data);
+          break;
+        case 'node-lock-release':
+          this.socket.emit('node-lock-release', event.data);
+          break;
+      }
+    }
+  }
+  
+  public disconnect(): void {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+    
+    this.isConnected = false;
+    this.currentWorkspaceId = null;
+    this.eventQueue = [];
+  }
+  
+  public isConnectedToServer(): boolean {
+    return this.isConnected;
+  }
+  
+  public getCurrentWorkspaceId(): string | null {
+    return this.currentWorkspaceId;
+  }
+}
+      ]]></code>
+    </file>
+
+    <file path="src/utils/event-emitter.ts">
+      <description>Simple event emitter for client-side events</description>
+      <code><![CDATA[
+export type EventHandler = (...args: any[]) => void;
+
+export class EventEmitter {
+  private events: Map<string, EventHandler[]> = new Map();
+  
+  public on(event: string, handler: EventHandler): void {
+    if (!this.events.has(event)) {
+      this.events.set(event, []);
+    }
+    this.events.get(event)!.push(handler);
+  }
+  
+  public off(event: string, handler: EventHandler): void {
+    const handlers = this.events.get(event);
+    if (!handlers) return;
+    
+    const index = handlers.indexOf(handler);
+    if (index !== -1) {
+      handlers.splice(index, 1);
+    }
+  }
+  
+  public emit(event: string, ...args: any[]): void {
+    const handlers = this.events.get(event);
+    if (!handlers) return;
+    
+    handlers.forEach(handler => {
+      try {
+        handler(...args);
+      } catch (error) {
+        console.error(`Error in event handler for ${event}:`, error);
+      }
+    });
+  }
+  
+  public removeAllListeners(event?: string): void {
+    if (event) {
+      this.events.delete(event);
+    } else {
+      this.events.clear();
+    }
+  }
+}
+      ]]></code>
+    </file>
+
+    <dependencies>
+      <package name="socket.io-client" version="^4.7.2" />
+    </dependencies>
+  </client-implementation>
+
+  <database-schema>
+    <description>Database tables for collaboration features</description>
+    <sql><![CDATA[
+-- Active collaboration sessions
+CREATE TABLE IF NOT EXISTS active_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  socket_id TEXT UNIQUE NOT NULL,
+  connected_at DATETIME NOT NULL,
+  last_heartbeat DATETIME NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+-- Node locks for preventing concurrent edits
+CREATE TABLE IF NOT EXISTS node_locks (
+  node_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  locked_by_user_id TEXT NOT NULL,
+  locked_by_username TEXT NOT NULL,
+  locked_at DATETIME NOT NULL,
+  expires_at DATETIME NOT NULL,
+  lock_type TEXT DEFAULT 'edit' CHECK(lock_type IN ('edit', 'move', 'delete')),
+  socket_id TEXT,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (locked_by_user_id) REFERENCES users(id)
+);
+
+-- Indexes for performance
+CREATE INDEX idx_active_sessions_user ON active_sessions(user_id);
+CREATE INDEX idx_active_sessions_workspace ON active_sessions(workspace_id);
+CREATE INDEX idx_active_sessions_heartbeat ON active_sessions(last_heartbeat);
+CREATE INDEX idx_node_locks_workspace ON node_locks(workspace_id);
+CREATE INDEX idx_node_locks_expires ON node_locks(expires_at);
+CREATE INDEX idx_node_locks_user ON node_locks(locked_by_user_id);
+    ]]></sql>
+  </database-schema>
+
+  <testing>
+    <test-file path="tests/integration/websocket.test.ts">
+      <description>Integration tests for WebSocket functionality</description>
+      <scenarios>
+        <scenario>Connection and authentication</scenario>
+        <scenario>Workspace join/leave</scenario>
+        <scenario>Multiple users in same workspace</scenario>
+        <scenario>Disconnection and reconnection</scenario>
+        <scenario>Event queuing during disconnection</scenario>
+        <scenario>Heartbeat and stale connection cleanup</scenario>
+      </scenarios>
+    </test-file>
+  </testing>
+</specification>

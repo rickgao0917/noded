@@ -1,0 +1,712 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phase-implementation>
+  <metadata>
+    <phase-number>1</phase-number>
+    <phase-name>Database and Backend Foundation</phase-name>
+    <estimated-duration>2-3 days</estimated-duration>
+    <dependencies>
+      <dependency>Existing authentication system</dependency>
+      <dependency>Existing workspace management system</dependency>
+      <dependency>SQLite database infrastructure</dependency>
+    </dependencies>
+  </metadata>
+
+  <objectives>
+    <objective priority="1">Create database schema for workspace sharing</objective>
+    <objective priority="2">Implement core sharing service with user search</objective>
+    <objective priority="3">Add share validation and permission checking</objective>
+    <objective priority="4">Create comprehensive test coverage</objective>
+  </objectives>
+
+  <database-implementation>
+    <migration-file path="server-src/migrations/001_add_sharing_tables.sql">
+      <content><![CDATA[
+-- Create workspace_shares table
+CREATE TABLE IF NOT EXISTS workspace_shares (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  shared_with_user_id TEXT NOT NULL,
+  permission_level TEXT NOT NULL DEFAULT 'view',
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  last_accessed TEXT,
+  is_active INTEGER DEFAULT 1,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (owner_id) REFERENCES users(id),
+  FOREIGN KEY (shared_with_user_id) REFERENCES users(id),
+  CHECK (permission_level IN ('view'))
+);
+
+-- Create unique index for workspace-user pairs
+CREATE UNIQUE INDEX idx_workspace_shares_unique 
+ON workspace_shares(workspace_id, shared_with_user_id) 
+WHERE is_active = 1;
+
+-- Create indexes for queries
+CREATE INDEX idx_workspace_shares_shared_with ON workspace_shares(shared_with_user_id);
+CREATE INDEX idx_workspace_shares_owner ON workspace_shares(owner_id);
+CREATE INDEX idx_workspace_shares_workspace ON workspace_shares(workspace_id);
+
+-- Create share_links table
+CREATE TABLE IF NOT EXISTS share_links (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  share_token TEXT UNIQUE NOT NULL,
+  requires_login INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  access_count INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+  FOREIGN KEY (owner_id) REFERENCES users(id)
+);
+
+-- Create index for token lookups
+CREATE UNIQUE INDEX idx_share_links_token ON share_links(share_token);
+CREATE INDEX idx_share_links_workspace ON share_links(workspace_id);
+
+-- Create share_activity table
+CREATE TABLE IF NOT EXISTS share_activity (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  user_id TEXT,
+  share_type TEXT NOT NULL CHECK (share_type IN ('direct_share', 'link_share')),
+  action TEXT NOT NULL CHECK (action IN ('viewed', 'exported', 'link_created', 'share_granted', 'share_revoked')),
+  ip_address TEXT,
+  user_agent TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Create indexes for activity queries
+CREATE INDEX idx_share_activity_workspace ON share_activity(workspace_id, created_at);
+CREATE INDEX idx_share_activity_user ON share_activity(user_id);
+
+-- Add sharing columns to workspaces table
+ALTER TABLE workspaces ADD COLUMN is_public INTEGER DEFAULT 0;
+ALTER TABLE workspaces ADD COLUMN share_settings TEXT;
+      ]]></content>
+    </migration-file>
+
+    <database-service-updates path="server-src/services/database-service.ts">
+      <add-method name="runMigration">
+        <description>Execute the sharing tables migration</description>
+        <implementation><![CDATA[
+async runMigration(): Promise<void> {
+  const logger = new Logger('DatabaseService', 'database');
+  const correlationId = logger.generateCorrelationId();
+  
+  try {
+    logger.logFunctionEntry('runMigration', {}, correlationId);
+    
+    const migrationSql = await fs.readFile(
+      path.join(__dirname, '../migrations/001_add_sharing_tables.sql'),
+      'utf-8'
+    );
+    
+    // Split migration into individual statements
+    const statements = migrationSql
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    
+    for (const statement of statements) {
+      await this.db.run(statement);
+      logger.logBusinessLogic('Migration statement executed', {
+        statementPreview: statement.substring(0, 50) + '...'
+      }, correlationId);
+    }
+    
+    logger.logFunctionExit('runMigration', undefined, correlationId);
+  } catch (error) {
+    logger.logError('Migration failed', error, { correlationId });
+    throw new DatabaseError('Failed to run sharing tables migration', { error });
+  }
+}
+        ]]></implementation>
+      </add-method>
+    </database-service-updates>
+  </database-implementation>
+
+  <share-service-implementation>
+    <file path="server-src/services/share-service.ts">
+      <imports><![CDATA[
+import { Logger } from '../../src/utils/logger';
+import { DatabaseService } from './database-service';
+import { ValidationError, ShareError } from '../../src/types/errors';
+import * as crypto from 'crypto';
+
+interface UserSearchResult {
+  id: string;
+  username: string;
+}
+
+interface ShareRecord {
+  id: string;
+  workspaceId: string;
+  ownerId: string;
+  sharedWithUserId: string;
+  permissionLevel: 'view';
+  createdAt: string;
+  expiresAt?: string;
+  lastAccessed?: string;
+  isActive: boolean;
+}
+
+interface ShareWithUserInfo extends ShareRecord {
+  sharedWithUsername: string;
+}
+
+interface SharedWorkspace {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerUsername: string;
+  sharedAt: string;
+  lastAccessed?: string;
+  expiresAt?: string;
+}
+      ]]></imports>
+
+      <class name="ShareService">
+        <constructor><![CDATA[
+constructor(private db: DatabaseService) {
+  this.logger = new Logger('ShareService', 'share');
+}
+
+private logger: Logger;
+        ]]></constructor>
+
+        <method name="searchUsers">
+          <description>Search for users by username with fuzzy matching</description>
+          <implementation><![CDATA[
+async searchUsers(
+  query: string,
+  excludeUserId: string,
+  limit: number = 10
+): Promise<UserSearchResult[]> {
+  const correlationId = this.logger.generateCorrelationId();
+  
+  try {
+    this.logger.logFunctionEntry('searchUsers', { query, excludeUserId, limit }, correlationId);
+    
+    // Validate input
+    if (!query || query.trim().length < 2) {
+      throw new ValidationError('Search query must be at least 2 characters');
+    }
+    
+    // Sanitize query for SQL LIKE
+    const sanitizedQuery = query.trim().replace(/[%_]/g, '\\$&');
+    
+    // Search for users with username containing the query
+    const users = await this.db.query<UserSearchResult>(
+      `SELECT id, username 
+       FROM users 
+       WHERE username LIKE ? 
+         AND id != ? 
+         AND is_active = 1
+       ORDER BY 
+         CASE WHEN username = ? THEN 0 ELSE 1 END,
+         LENGTH(username),
+         username
+       LIMIT ?`,
+      [`%${sanitizedQuery}%`, excludeUserId, query, limit]
+    );
+    
+    this.logger.logBusinessLogic('User search completed', {
+      query,
+      resultCount: users.length
+    }, correlationId);
+    
+    this.logger.logFunctionExit('searchUsers', users, correlationId);
+    return users;
+    
+  } catch (error) {
+    this.logger.logError('Failed to search users', error, { correlationId });
+    throw error;
+  }
+}
+          ]]></implementation>
+        </method>
+
+        <method name="shareWorkspace">
+          <description>Share a workspace with another user</description>
+          <implementation><![CDATA[
+async shareWorkspace(
+  workspaceId: string,
+  ownerId: string,
+  shareWithUserId: string,
+  expiresAt?: string
+): Promise<ShareRecord> {
+  const correlationId = this.logger.generateCorrelationId();
+  
+  try {
+    this.logger.logFunctionEntry('shareWorkspace', {
+      workspaceId,
+      ownerId,
+      shareWithUserId,
+      expiresAt
+    }, correlationId);
+    
+    // Validate workspace ownership
+    const workspace = await this.db.get(
+      'SELECT id FROM workspaces WHERE id = ? AND user_id = ?',
+      [workspaceId, ownerId]
+    );
+    
+    if (!workspace) {
+      throw new ValidationError('Workspace not found or you do not have permission');
+    }
+    
+    // Prevent self-sharing
+    if (ownerId === shareWithUserId) {
+      throw new ValidationError('Cannot share workspace with yourself');
+    }
+    
+    // Check if user exists
+    const targetUser = await this.db.get(
+      'SELECT id FROM users WHERE id = ? AND is_active = 1',
+      [shareWithUserId]
+    );
+    
+    if (!targetUser) {
+      throw new ValidationError('User not found');
+    }
+    
+    // Check for existing active share
+    const existingShare = await this.db.get(
+      `SELECT id FROM workspace_shares 
+       WHERE workspace_id = ? AND shared_with_user_id = ? AND is_active = 1`,
+      [workspaceId, shareWithUserId]
+    );
+    
+    if (existingShare) {
+      throw new ValidationError('Workspace is already shared with this user');
+    }
+    
+    // Create share record
+    const shareId = `share_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const now = new Date().toISOString();
+    
+    await this.db.run(
+      `INSERT INTO workspace_shares 
+       (id, workspace_id, owner_id, shared_with_user_id, permission_level, created_at, expires_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [shareId, workspaceId, ownerId, shareWithUserId, 'view', now, expiresAt || null, 1]
+    );
+    
+    // Log activity
+    await this.logShareActivity(workspaceId, ownerId, 'share_granted', {
+      sharedWithUserId
+    });
+    
+    const share: ShareRecord = {
+      id: shareId,
+      workspaceId,
+      ownerId,
+      sharedWithUserId: shareWithUserId,
+      permissionLevel: 'view',
+      createdAt: now,
+      expiresAt,
+      isActive: true
+    };
+    
+    this.logger.logBusinessLogic('Workspace shared successfully', {
+      shareId,
+      workspaceId,
+      sharedWithUserId
+    }, correlationId);
+    
+    this.logger.logFunctionExit('shareWorkspace', share, correlationId);
+    return share;
+    
+  } catch (error) {
+    this.logger.logError('Failed to share workspace', error, { correlationId });
+    throw error;
+  }
+}
+          ]]></implementation>
+        </method>
+
+        <method name="validateShareAccess">
+          <description>Check if user has access to a workspace</description>
+          <implementation><![CDATA[
+async validateShareAccess(
+  workspaceId: string,
+  userId: string
+): Promise<'owner' | 'view' | null> {
+  const correlationId = this.logger.generateCorrelationId();
+  
+  try {
+    this.logger.logFunctionEntry('validateShareAccess', { workspaceId, userId }, correlationId);
+    
+    // Check if user owns the workspace
+    const ownership = await this.db.get(
+      'SELECT id FROM workspaces WHERE id = ? AND user_id = ?',
+      [workspaceId, userId]
+    );
+    
+    if (ownership) {
+      this.logger.logBusinessLogic('User is owner', { workspaceId, userId }, correlationId);
+      return 'owner';
+    }
+    
+    // Check for active share
+    const share = await this.db.get(
+      `SELECT permission_level, expires_at 
+       FROM workspace_shares 
+       WHERE workspace_id = ? 
+         AND shared_with_user_id = ? 
+         AND is_active = 1`,
+      [workspaceId, userId]
+    );
+    
+    if (!share) {
+      this.logger.logBusinessLogic('No share found', { workspaceId, userId }, correlationId);
+      return null;
+    }
+    
+    // Check expiration
+    if (share.expires_at && new Date(share.expires_at) < new Date()) {
+      this.logger.logBusinessLogic('Share expired', { 
+        workspaceId, 
+        userId,
+        expiresAt: share.expires_at 
+      }, correlationId);
+      
+      // Mark as inactive
+      await this.db.run(
+        'UPDATE workspace_shares SET is_active = 0 WHERE workspace_id = ? AND shared_with_user_id = ?',
+        [workspaceId, userId]
+      );
+      
+      return null;
+    }
+    
+    // Update last accessed
+    await this.db.run(
+      'UPDATE workspace_shares SET last_accessed = ? WHERE workspace_id = ? AND shared_with_user_id = ?',
+      [new Date().toISOString(), workspaceId, userId]
+    );
+    
+    this.logger.logFunctionExit('validateShareAccess', share.permission_level, correlationId);
+    return share.permission_level as 'view';
+    
+  } catch (error) {
+    this.logger.logError('Failed to validate share access', error, { correlationId });
+    throw error;
+  }
+}
+          ]]></implementation>
+        </method>
+
+        <method name="getSharedWithMe">
+          <description>Get all workspaces shared with a user</description>
+          <implementation><![CDATA[
+async getSharedWithMe(userId: string): Promise<SharedWorkspace[]> {
+  const correlationId = this.logger.generateCorrelationId();
+  
+  try {
+    this.logger.logFunctionEntry('getSharedWithMe', { userId }, correlationId);
+    
+    const sharedWorkspaces = await this.db.query<SharedWorkspace>(
+      `SELECT 
+        w.id,
+        w.name,
+        w.user_id as ownerId,
+        u.username as ownerUsername,
+        ws.created_at as sharedAt,
+        ws.last_accessed as lastAccessed,
+        ws.expires_at as expiresAt
+       FROM workspace_shares ws
+       JOIN workspaces w ON ws.workspace_id = w.id
+       JOIN users u ON w.user_id = u.id
+       WHERE ws.shared_with_user_id = ?
+         AND ws.is_active = 1
+         AND (ws.expires_at IS NULL OR ws.expires_at > datetime('now'))
+         AND w.name NOT LIKE '\\_deleted\\_%' ESCAPE '\\'
+       ORDER BY ws.last_accessed DESC, ws.created_at DESC`,
+      [userId]
+    );
+    
+    this.logger.logBusinessLogic('Retrieved shared workspaces', {
+      userId,
+      count: sharedWorkspaces.length
+    }, correlationId);
+    
+    this.logger.logFunctionExit('getSharedWithMe', sharedWorkspaces, correlationId);
+    return sharedWorkspaces;
+    
+  } catch (error) {
+    this.logger.logError('Failed to get shared workspaces', error, { correlationId });
+    throw error;
+  }
+}
+          ]]></implementation>
+        </method>
+
+        <method name="logShareActivity">
+          <description>Log sharing activity for audit trail</description>
+          <implementation><![CDATA[
+private async logShareActivity(
+  workspaceId: string,
+  userId: string | null,
+  action: string,
+  metadata?: Record<string, any>
+): Promise<void> {
+  const correlationId = this.logger.generateCorrelationId();
+  
+  try {
+    const activityId = `activity_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    
+    await this.db.run(
+      `INSERT INTO share_activity 
+       (id, workspace_id, user_id, share_type, action, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        activityId,
+        workspaceId,
+        userId,
+        'direct_share',
+        action,
+        new Date().toISOString()
+      ]
+    );
+    
+    this.logger.logBusinessLogic('Share activity logged', {
+      activityId,
+      workspaceId,
+      action,
+      metadata
+    }, correlationId);
+    
+  } catch (error) {
+    // Log error but don't throw - activity logging shouldn't break main flow
+    this.logger.logError('Failed to log share activity', error, { correlationId });
+  }
+}
+          ]]></implementation>
+        </method>
+      </class>
+    </file>
+  </share-service-implementation>
+
+  <testing>
+    <test-file path="tests/services/share-service.test.ts">
+      <test-suite name="ShareService">
+        <setup><![CDATA[
+let db: DatabaseService;
+let shareService: ShareService;
+let testUsers: { owner: any; recipient: any; other: any };
+let testWorkspace: any;
+
+beforeEach(async () => {
+  // Initialize in-memory database
+  db = await DatabaseService.initialize(':memory:');
+  await db.runMigration();
+  
+  shareService = new ShareService(db);
+  
+  // Create test users
+  testUsers = {
+    owner: await createTestUser(db, 'workspace_owner'),
+    recipient: await createTestUser(db, 'share_recipient'),
+    other: await createTestUser(db, 'other_user')
+  };
+  
+  // Create test workspace
+  testWorkspace = await createTestWorkspace(db, testUsers.owner.id, 'Test Workspace');
+});
+        ]]></setup>
+
+        <test name="searchUsers should find users by partial username">
+          <implementation><![CDATA[
+const results = await shareService.searchUsers('recip', testUsers.owner.id);
+
+expect(results).toHaveLength(1);
+expect(results[0]).toEqual({
+  id: testUsers.recipient.id,
+  username: 'share_recipient'
+});
+          ]]></implementation>
+        </test>
+
+        <test name="searchUsers should exclude the requesting user">
+          <implementation><![CDATA[
+const results = await shareService.searchUsers('owner', testUsers.owner.id);
+
+expect(results).toHaveLength(0);
+          ]]></implementation>
+        </test>
+
+        <test name="shareWorkspace should create a share record">
+          <implementation><![CDATA[
+const share = await shareService.shareWorkspace(
+  testWorkspace.id,
+  testUsers.owner.id,
+  testUsers.recipient.id
+);
+
+expect(share).toMatchObject({
+  workspaceId: testWorkspace.id,
+  ownerId: testUsers.owner.id,
+  sharedWithUserId: testUsers.recipient.id,
+  permissionLevel: 'view',
+  isActive: true
+});
+
+// Verify share was saved
+const savedShare = await db.get(
+  'SELECT * FROM workspace_shares WHERE id = ?',
+  [share.id]
+);
+expect(savedShare).toBeTruthy();
+          ]]></implementation>
+        </test>
+
+        <test name="shareWorkspace should prevent self-sharing">
+          <implementation><![CDATA[
+await expect(
+  shareService.shareWorkspace(
+    testWorkspace.id,
+    testUsers.owner.id,
+    testUsers.owner.id
+  )
+).rejects.toThrow('Cannot share workspace with yourself');
+          ]]></implementation>
+        </test>
+
+        <test name="shareWorkspace should prevent duplicate shares">
+          <implementation><![CDATA[
+// First share should succeed
+await shareService.shareWorkspace(
+  testWorkspace.id,
+  testUsers.owner.id,
+  testUsers.recipient.id
+);
+
+// Second share should fail
+await expect(
+  shareService.shareWorkspace(
+    testWorkspace.id,
+    testUsers.owner.id,
+    testUsers.recipient.id
+  )
+).rejects.toThrow('Workspace is already shared with this user');
+          ]]></implementation>
+        </test>
+
+        <test name="validateShareAccess should return owner for workspace owner">
+          <implementation><![CDATA[
+const access = await shareService.validateShareAccess(
+  testWorkspace.id,
+  testUsers.owner.id
+);
+
+expect(access).toBe('owner');
+          ]]></implementation>
+        </test>
+
+        <test name="validateShareAccess should return view for shared user">
+          <implementation><![CDATA[
+await shareService.shareWorkspace(
+  testWorkspace.id,
+  testUsers.owner.id,
+  testUsers.recipient.id
+);
+
+const access = await shareService.validateShareAccess(
+  testWorkspace.id,
+  testUsers.recipient.id
+);
+
+expect(access).toBe('view');
+          ]]></implementation>
+        </test>
+
+        <test name="validateShareAccess should return null for expired shares">
+          <implementation><![CDATA[
+const pastDate = new Date(Date.now() - 86400000).toISOString(); // Yesterday
+
+await shareService.shareWorkspace(
+  testWorkspace.id,
+  testUsers.owner.id,
+  testUsers.recipient.id,
+  pastDate
+);
+
+const access = await shareService.validateShareAccess(
+  testWorkspace.id,
+  testUsers.recipient.id
+);
+
+expect(access).toBeNull();
+          ]]></implementation>
+        </test>
+
+        <test name="getSharedWithMe should return workspaces shared with user">
+          <implementation><![CDATA[
+// Create multiple shares
+const workspace2 = await createTestWorkspace(db, testUsers.other.id, 'Other Workspace');
+
+await shareService.shareWorkspace(
+  testWorkspace.id,
+  testUsers.owner.id,
+  testUsers.recipient.id
+);
+
+await shareService.shareWorkspace(
+  workspace2.id,
+  testUsers.other.id,
+  testUsers.recipient.id
+);
+
+const shared = await shareService.getSharedWithMe(testUsers.recipient.id);
+
+expect(shared).toHaveLength(2);
+expect(shared[0]).toMatchObject({
+  id: testWorkspace.id,
+  name: 'Test Workspace',
+  ownerUsername: 'workspace_owner'
+});
+expect(shared[1]).toMatchObject({
+  id: workspace2.id,
+  name: 'Other Workspace',
+  ownerUsername: 'other_user'
+});
+          ]]></implementation>
+        </test>
+      </test-suite>
+    </test-file>
+  </testing>
+
+  <deliverables>
+    <deliverable type="database">
+      <item>Migration script for sharing tables</item>
+      <item>Updated DatabaseService with migration support</item>
+    </deliverable>
+    
+    <deliverable type="service">
+      <item>Complete ShareService implementation</item>
+      <item>User search functionality</item>
+      <item>Share creation and validation</item>
+      <item>Access control checking</item>
+    </deliverable>
+    
+    <deliverable type="testing">
+      <item>Comprehensive unit tests for ShareService</item>
+      <item>Test utilities for creating test data</item>
+      <item>90%+ code coverage for new service</item>
+    </deliverable>
+  </deliverables>
+
+  <success-criteria>
+    <criterion>All database tables created successfully</criterion>
+    <criterion>ShareService passes all unit tests</criterion>
+    <criterion>User search returns accurate results</criterion>
+    <criterion>Share creation validates all business rules</criterion>
+    <criterion>Access validation correctly identifies permissions</criterion>
+    <criterion>Activity logging captures all share events</criterion>
+  </success-criteria>
+</phase-implementation>

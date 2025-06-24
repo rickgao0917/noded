@@ -145,6 +145,33 @@ class WorkspaceService {
             this.logger.logFunctionExit('listWorkspaces');
         }
     }
+    async getWorkspaceById(workspaceId) {
+        this.logger.logFunctionEntry('getWorkspaceById', { workspaceId });
+        try {
+            // Query database directly by workspace ID
+            const dbWorkspace = await this.database.get('SELECT * FROM workspaces WHERE id = ?', [workspaceId]);
+            if (!dbWorkspace) {
+                return null;
+            }
+            const graphData = JSON.parse(dbWorkspace.graph_data);
+            const canvasState = JSON.parse(dbWorkspace.canvas_state);
+            return {
+                id: dbWorkspace.id,
+                name: dbWorkspace.name,
+                graphData,
+                canvasState,
+                createdAt: new Date(dbWorkspace.created_at),
+                updatedAt: new Date(dbWorkspace.updated_at)
+            };
+        }
+        catch (error) {
+            this.logger.logError(error, 'getWorkspaceById');
+            return null;
+        }
+        finally {
+            this.logger.logFunctionExit('getWorkspaceById');
+        }
+    }
     async updateWorkspace(userId, workspaceId, request) {
         this.logger.logFunctionEntry('updateWorkspace', { userId, workspaceId });
         try {

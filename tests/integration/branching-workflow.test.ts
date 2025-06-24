@@ -238,8 +238,7 @@ describe('Branching Workflow Integration', () => {
       const rootId = Array.from(graphEditor['nodes'].keys())[0];
       
       // Create initial conversation
-      const childId = graphEditor.addChild(rootId!);
-      const childNode = graphEditor.getNode(childId);
+      const childNode = graphEditor.addChild(rootId!);
       if (childNode) {
         childNode.blocks = [
           { id: 'child-prompt' as BlockId, type: 'prompt', content: 'Follow-up question', position: 0 },

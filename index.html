@@ -1281,6 +1281,419 @@
                 width: 100%;
             }
         }
+        
+        /* Read-Only Mode Styles */
+        .editor-container.read-only .node {
+            cursor: default;
+            opacity: 0.95;
+        }
+        
+        .editor-container.read-only .node:hover {
+            border-color: #404040; /* No hover effect in read-only mode */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Keep default shadow */
+        }
+        
+        /* Hide all control buttons in read-only mode */
+        .editor-container.read-only .btn,
+        .editor-container.read-only .btn-add,
+        .editor-container.read-only .btn-delete,
+        .editor-container.read-only .btn-delete-block,
+        .editor-container.read-only .btn-submit,
+        .editor-container.read-only .btn-collapse,
+        .editor-container.read-only .btn-minimize,
+        .editor-container.read-only .btn-toggle-mode,
+        .editor-container.read-only .control-btn:not(#toggleReadOnlyBtn),
+        .editor-container.read-only .node-resize-handle,
+        .editor-container.read-only .resize-handle {
+            display: none !important;
+        }
+        
+        /* Make node names non-editable in read-only mode */
+        .editor-container.read-only .node-name {
+            cursor: default;
+            pointer-events: none;
+            border-color: transparent !important;
+            background: transparent !important;
+        }
+        
+        /* Disable textarea editing in read-only mode */
+        .editor-container.read-only textarea {
+            cursor: default;
+            pointer-events: none;
+            resize: none;
+            user-select: text; /* Allow text selection but not editing */
+            background: rgba(255, 255, 255, 0.02);
+            color: #ccc;
+        }
+        
+        /* Disable canvas panning in read-only mode */
+        .editor-container.read-only .canvas {
+            cursor: default;
+        }
+        
+        .editor-container.read-only .canvas:active {
+            cursor: default;
+        }
+        
+        /* Show preview mode for all blocks in read-only mode */
+        .editor-container.read-only .block[data-preview-mode="raw"] .rendered-content {
+            display: block;
+        }
+        
+        .editor-container.read-only .block[data-preview-mode="raw"] textarea {
+            display: none;
+        }
+        
+        /* Disable rendered content hover effects in read-only mode */
+        .editor-container.read-only .rendered-content {
+            cursor: default;
+            pointer-events: none;
+        }
+        
+        .editor-container.read-only .rendered-content:hover {
+            background: rgba(255, 255, 255, 0.02);
+            border-color: rgba(255, 255, 255, 0.05);
+        }
+        
+        /* Hide chat input controls in read-only mode */
+        .editor-container.read-only .chat-input-container,
+        .editor-container.read-only .chat-input-wrapper,
+        .editor-container.read-only .chat-actions,
+        .editor-container.read-only .chat-edit-buttons {
+            display: none !important;
+        }
+        
+        /* Disable chat message editing in read-only mode */
+        .editor-container.read-only .chat-message-content {
+            cursor: default;
+            pointer-events: none;
+        }
+        
+        /* Read-only indicator in controls area */
+        .read-only-indicator {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 100, 100, 0.1);
+            border: 1px solid rgba(255, 100, 100, 0.3);
+            color: #ff9999;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            z-index: 1000;
+        }
+        
+        .editor-container.read-only .read-only-indicator {
+            display: flex;
+        }
+        
+        .read-only-icon {
+            font-size: 16px;
+        }
+        
+        /* Ensure block headers remain visible but non-interactive */
+        .editor-container.read-only .block-header {
+            cursor: default;
+            user-select: none;
+        }
+        
+        /* Keep zoom controls functional in read-only mode */
+        .editor-container.read-only .zoom-controls {
+            pointer-events: auto;
+        }
+        
+        /* Keep the toggle read-only button visible and functional */
+        #toggleReadOnlyBtn {
+            background: #5a3d2d;
+        }
+        
+        #toggleReadOnlyBtn:hover {
+            background: #6a4d3d;
+        }
+        
+        .editor-container.read-only #toggleReadOnlyBtn {
+            background: #3d5a2d;
+        }
+        
+        .editor-container.read-only #toggleReadOnlyBtn:hover {
+            background: #4d6a3d;
+        }
+        
+        /* Share UI Animations and Transitions */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.05);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+            100% {
+                background-position: 200% 0;
+            }
+        }
+        
+        /* Share Dialog Animations */
+        .share-dialog {
+            animation: fadeIn 0.3s ease-out;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .share-dialog-overlay {
+            animation: fadeIn 0.2s ease-out;
+            backdrop-filter: blur(4px);
+            transition: backdrop-filter 0.3s ease;
+        }
+        
+        /* Share Button Animations */
+        .share-button {
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .share-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(70, 130, 180, 0.4);
+        }
+        
+        .share-button:active {
+            transform: translateY(0);
+            transition: transform 0.1s ease;
+        }
+        
+        .share-button::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s ease, height 0.6s ease;
+        }
+        
+        .share-button:hover::after {
+            width: 300px;
+            height: 300px;
+        }
+        
+        /* Shared Workspace Indicator Animations */
+        .shared-workspace-indicator {
+            animation: slideIn 0.4s ease-out;
+            transition: all 0.3s ease;
+        }
+        
+        .shared-workspace-indicator:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(255, 100, 100, 0.2);
+        }
+        
+        .shared-icon {
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        /* Share List Item Animations */
+        .share-item {
+            animation: fadeIn 0.3s ease-out;
+            animation-fill-mode: both;
+            transition: all 0.2s ease;
+        }
+        
+        .share-item:nth-child(1) { animation-delay: 0.05s; }
+        .share-item:nth-child(2) { animation-delay: 0.1s; }
+        .share-item:nth-child(3) { animation-delay: 0.15s; }
+        .share-item:nth-child(4) { animation-delay: 0.2s; }
+        .share-item:nth-child(5) { animation-delay: 0.25s; }
+        
+        .share-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateX(5px);
+        }
+        
+        /* Revoke Button Animation */
+        .revoke-share-btn {
+            transition: all 0.2s ease;
+        }
+        
+        .revoke-share-btn:hover {
+            color: #ff6666;
+            transform: scale(1.1);
+        }
+        
+        /* Copy Link Button Animation */
+        .copy-link-btn {
+            position: relative;
+            transition: all 0.2s ease;
+        }
+        
+        .copy-link-btn.copied {
+            animation: pulse 0.5s ease;
+        }
+        
+        .copy-link-btn.copied::before {
+            content: 'Copied!';
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #4CAF50;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        /* Loading State Animation */
+        .share-loading {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .share-loading::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                rgba(255, 255, 255, 0.1) 50%,
+                transparent 100%
+            );
+            animation: shimmer 1.5s ease-in-out infinite;
+        }
+        
+        /* Error/Success Message Animations */
+        .share-message {
+            animation: slideIn 0.3s ease-out;
+            transition: all 0.3s ease;
+        }
+        
+        .share-message.success {
+            background: rgba(76, 175, 80, 0.1);
+            border-color: #4CAF50;
+            color: #4CAF50;
+        }
+        
+        .share-message.error {
+            background: rgba(244, 67, 54, 0.1);
+            border-color: #f44336;
+            color: #f44336;
+        }
+        
+        /* Read-Only Mode Transition */
+        .editor-container {
+            transition: filter 0.3s ease;
+        }
+        
+        .editor-container.read-only {
+            filter: saturate(0.8);
+        }
+        
+        /* Smooth Node Transitions in Read-Only */
+        .node.read-only {
+            transition: opacity 0.3s ease, filter 0.3s ease;
+        }
+        
+        /* Share Sidebar Animations */
+        .shared-workspaces-section {
+            animation: fadeIn 0.4s ease-out;
+        }
+        
+        .shared-workspace-item {
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .shared-workspace-item:hover {
+            background: rgba(70, 130, 180, 0.1);
+            transform: translateX(5px);
+            border-left: 3px solid #4682B4;
+            padding-left: 13px;
+        }
+        
+        /* Tooltip Animations */
+        .share-tooltip {
+            position: absolute;
+            background: #333;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.2s ease;
+            z-index: 10000;
+        }
+        
+        .share-tooltip.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* Focus States with Animation */
+        .share-input:focus {
+            outline: none;
+            border-color: #4682B4;
+            box-shadow: 0 0 0 3px rgba(70, 130, 180, 0.2);
+            transition: all 0.2s ease;
+        }
+        
+        /* Disabled State Transitions */
+        .share-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+            transition: opacity 0.2s ease;
+        }
+        
+        .share-button:disabled::after {
+            display: none;
+        }
     </style>
     
     <!-- Markdown Libraries -->
@@ -1296,12 +1709,18 @@
 </head>
 <body>
     <div class="editor-container">
+        <div class="read-only-indicator">
+            <span class="read-only-icon">🔒</span>
+            <span>Read-Only Mode</span>
+        </div>
+        
         <div class="controls">
             <button class="control-btn" id="addRootBtn">Add Root</button>
             <button class="control-btn" id="autoLayoutBtn">Auto Layout</button>
             <button class="control-btn" id="toggleCollapseBtn">Collapse All</button>
             <button class="control-btn" id="resetViewBtn">Reset View</button>
             <button class="control-btn" id="exportBtn">Export</button>
+            <button class="control-btn" id="toggleReadOnlyBtn">Toggle Read-Only</button>
         </div>
         
         <div class="zoom-controls">
