@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes. Each node contains multiple blocks (prompt, response, markdown) and represents a conversation state, with child nodes representing edits or variations creating a guaranteed tree structure with DOM-based rendering.
 
-**Major Updates (2025-06-24):**
-- **Workspace Sharing**: Complete sharing system with direct user shares and shareable links
-- **Read-Only Mode**: Shared workspaces open in read-only mode with visual indicators
-- **Share Management UI**: Intuitive dialog for managing shares, revoking access, and viewing activity
-- **Enhanced Error Handling**: User-friendly error messages for all sharing operations
-- **Security Features**: Proper access control, session validation, and share expiration
+**Major Updates (2025-06-25):**
+- **Docker-Only Development**: Complete transition to Docker-based development with hot-reloading
+- **Multi-Stage Docker Build**: Development, production, and testing environments in single Dockerfile
+- **Hot-Reloading Support**: Real-time TypeScript compilation and server restart in containers
+- **Docker Compose Profiles**: Separate environments for dev, prod, test, and database management
+- **Container Management Scripts**: Comprehensive bash scripts replacing all npm commands
 
 **Previous Updates (2025-06-23):**
 - **User Authentication System**: Full login/register system with SQLite database
@@ -31,79 +31,74 @@ This is a graph-based node editor built with TypeScript that renders an interact
 - **Branching System**: Edit prompts/responses to create sibling branches for version control
 - **Branch Node Support**: Fixed tree validation to allow child nodes from branch nodes
 
-## Development Commands
+## Docker-Only Development Commands
 
-**Build and Development:**
+**IMPORTANT: This project now uses Docker exclusively. All npm commands have been replaced with Docker equivalents.**
+
+**Development Environment (with Hot-Reloading):**
 ```bash
-npm run build           # Compile TypeScript to dist/
-npm run build:server    # Compile server TypeScript to dist-server/
-npm run build:all       # Build both client and server
-npm run build:strict    # Full build with strict checking and linting
-npm run dev             # Watch mode compilation  
-npm run server          # Start Express server with authentication (recommended)
-npm run serve           # Start Python HTTP server on port 8000 (legacy)
-npm run start           # Build and start Python server (legacy)
-npm run typecheck       # Type checking without compilation
-npm run lint            # ESLint with zero warnings tolerance
+./docker-scripts.sh dev          # Start development with hot-reloading (recommended)
+./docker-scripts.sh dev-build    # Build development environment
+./docker-scripts.sh dev-logs     # Show development logs
+./docker-scripts.sh dev-stop     # Stop development environment
+./docker-scripts.sh dev-restart  # Restart development environment
+```
+
+**Production Environment:**
+```bash
+./docker-scripts.sh prod         # Start production server (http://localhost:6001)
+./docker-scripts.sh prod-build   # Build production environment
+./docker-scripts.sh prod-logs    # Show production logs
+./docker-scripts.sh prod-stop    # Stop production environment
+./docker-scripts.sh prod-restart # Restart production environment
+```
+
+**Testing:**
+```bash
+./docker-scripts.sh test         # Run Jest test suite in container
+./docker-scripts.sh test-coverage # Run tests with coverage reports
+./docker-scripts.sh test-watch   # Run tests in watch mode
 ```
 
 **Database Management:**
 ```bash
-npm run clear-db        # Clear SQLite database (removes all users, sessions, workspaces)
+./docker-scripts.sh clear-db     # Clear SQLite database (removes all users, sessions, workspaces)
 ```
 
-**Testing Commands:**
+**Utility Commands:**
 ```bash
-npm run test            # Run Jest test suite (fast, no coverage)
-npm run test:failed     # Show only failed tests (minimal output)
-npm run test:quiet      # Run tests with minimal console output
-npm run test:summary    # Show test results without stack traces
-npm run test:list       # List all test files
-npm run test:watch      # Run tests in watch mode
-npm run test:coverage   # Generate coverage reports (targets: 80% global, 100% utilities)
-npm run test:ci         # CI-optimized test run with coverage
+./docker-scripts.sh clean        # Clean up Docker resources (images, volumes)
+./docker-scripts.sh logs         # Show logs for all services
+./docker-scripts.sh status       # Show container and resource status
+./docker-scripts.sh build-all    # Build all Docker targets
+./docker-scripts.sh shell        # Open shell in development container
+./docker-scripts.sh help         # Show all available commands
 ```
 
-**Code Quality:**
-```bash
-npm run format          # Format code with Prettier
-npm run format:check    # Check code formatting
-```
-
-**Local Development Workflow:**
-1. `npm run server` - Build and start Express server with authentication
-2. Open `http://localhost:8000` 
+**Quick Start Workflow:**
+1. `./docker-scripts.sh dev` - Start development environment with hot-reloading
+2. Open `http://localhost:8000` in browser
 3. Register a new account or login with existing credentials
 4. Create and manage workspaces through the sidebar
+5. Code changes automatically trigger TypeScript recompilation and server restart
 
-**Alternative (Legacy) Workflow:**
-1. `npm run build` - Compile TypeScript
-2. `npm run serve` - Start Python server on port 8000 (no authentication)
-3. Open `standalone.html` directly in browser (no server needed)
-
-**Docker Development:**
-```bash
-# Build and run with Docker Compose
-docker-compose up -d      # Start container in background
-docker-compose down       # Stop and remove container
-docker-compose logs -f    # View container logs
-
-# Manual Docker commands
-docker build -t noded .   # Build image
-docker run -p 6001:8000 noded  # Run container
-```
+**Docker Architecture:**
+- **Development**: Hot-reloading with nodemon, file watchers, and volume mounts
+- **Production**: Optimized multi-stage build with security hardening
+- **Testing**: Isolated testing environment with coverage reporting
+- **Database**: Dedicated container for database management operations
 
 **Port Configuration:**
-- Local development: Port 8000 (Python HTTP server)
-- Docker container: Port 6001 (mapped to internal 8000)
-- Access via: `http://localhost:6001` when using Docker
+- Development: Port 8000 (HTTP server with hot-reloading)
+- Production: Port 6001 (mapped to internal 8000)
+- Both support full authentication and workspace management
 
-**Port Conflict Resolution:**
-If port 8000 is in use locally:
-- Use `lsof -ti:8000 | xargs kill -9` to kill processes on port 8000
-- Or use `python3 -m http.server 8001` to run on a different port
-- Or directly open `standalone.html` in your browser (no server needed)
-- Or use Docker which runs on port 6001
+**Volume Management:**
+- `noded-dist`: Compiled client-side TypeScript
+- `noded-dist-server`: Compiled server-side TypeScript  
+- `noded-node-modules`: Cached node modules for performance
+- `noded-test-coverage`: Test coverage reports
+- Source code mounted for hot-reloading in development
 
 ## Architecture
 
@@ -138,18 +133,6 @@ If port 8000 is in use locally:
 - Create, rename, delete workspace operations
 - Visual indication of active workspace
 - Logout button with confirmation dialog
-- Shared workspaces section with visual indicators
-
-**Workspace Sharing System**:
-- **Share Dialog** (`src/components/share-dialog.ts`): Complete UI for managing shares
-- **Share API** (`server-src/routes/share-routes.ts`): RESTful endpoints for sharing operations
-- **Share Service** (`server-src/services/share-service.ts`): Business logic for share management
-- **Share Error Handler** (`src/utils/share-error-handler.ts`): User-friendly error messages
-- **Shared Workspace Indicator** (`src/components/shared-workspace-indicator.ts`): Visual feedback for shared workspaces
-- Direct sharing with specific users by username
-- Shareable link generation with optional expiration
-- Read-only mode enforcement for shared workspaces
-- Activity tracking and access logging
 
 ### Core Design Principles
 
@@ -1058,11 +1041,11 @@ fetch('/api/submit', {
 ## Development Best Practices
 
 **Code Quality Standards:**
-- Always run `npm run build` before testing changes
-- Use `npm run test` for fast test verification (252 tests, all passing)
-- Use `npm run test:coverage` when coverage analysis is needed
-- Run `npm run typecheck` to verify strict TypeScript compliance
-- Use `npm run format` to maintain consistent code style
+- Always run `./docker-scripts.sh dev-build` before testing changes
+- Use `./docker-scripts.sh test` for fast test verification (252 tests, all passing)
+- Use `./docker-scripts.sh test-coverage` when coverage analysis is needed
+- TypeScript checking is automatic in development containers with hot-reloading
+- Code formatting and linting integrated into Docker build process
 - Monitor browser developer tools for structured logging output
 
 **Architecture Guidelines:**
@@ -1135,8 +1118,8 @@ fetch('/api/submit', {
 
 **Authentication Problems:**
 - **401 Unauthorized errors**: Session expired or invalid. Clear localStorage and re-login.
-- **Database cleared**: After `npm run clear-db`, restart server and register new account.
-- **Session not persisting**: Check localStorage for sessionToken, verify server is running.
+- **Database cleared**: After `./docker-scripts.sh clear-db`, restart with `./docker-scripts.sh dev` and register new account.
+- **Session not persisting**: Check localStorage for sessionToken, verify containers are running with `./docker-scripts.sh status`.
 
 **Gemini API Issues:**
 - **"API key not configured"**: Edit `config/config.js` and replace `YOUR_API_KEY_HERE` with actual key.
@@ -1155,7 +1138,7 @@ fetch('/api/submit', {
 **Performance Issues:**
 - **Slow rendering**: Check browser console for performance warnings (>10ms operations).
 - **Memory leaks**: Ensure proper cleanup of event listeners and editor instances.
-- **Database growing large**: Use `npm run clear-db` to reset completely.
+- **Database growing large**: Use `./docker-scripts.sh clear-db` to reset completely.
 
 ### Debug Information
 
@@ -1168,16 +1151,23 @@ window.NODE_EDITOR_CONFIG.DEBUG.enabled = true;
 **Common Debug Commands:**
 ```bash
 # Clear database completely
-npm run clear-db
+./docker-scripts.sh clear-db
 
 # Restart with fresh build
-npm run server
+./docker-scripts.sh dev-restart
 
-# Check database size
+# Check container status and resources
+./docker-scripts.sh status
+
+# View real-time logs
+./docker-scripts.sh logs
+
+# Check database size (from container)
+./docker-scripts.sh shell
 ls -la data/noded.db
 
-# View recent logs
-tail -f server.log  # if logging to file
+# Clean up Docker resources
+./docker-scripts.sh clean
 ```
 
 **Browser Developer Tools:**

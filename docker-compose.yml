@@ -1,14 +1,110 @@
+# Docker Compose configuration for Noded - Graph-based Node Editor
+# Supports development, production, and testing environments
+
 services:
-  noded:
-    build: .
+  # Development environment with hot-reloading
+  noded-dev:
+    build:
+      context: .
+      target: development
+    container_name: noded-dev
     ports:
-      - "6001:8000"
-    container_name: noded-app
+      - "8000:8000"    # Client HTTP server
+      - "3001:3001"    # Additional port for potential future use
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - DEBUG=*
+    volumes:
+      # Mount source code for hot-reloading
+      - ./src:/app/src
+      - ./server-src:/app/server-src
+      - ./tests:/app/tests
+      - ./config:/app/config
+      - ./index.html:/app/index.html
+      - ./standalone.html:/app/standalone.html
+      - ./data:/app/data
+      # Mount build outputs (created by container)
+      - noded-dist:/app/dist
+      - noded-dist-server:/app/dist-server
+      # Cache node_modules for better performance
+      - noded-node-modules:/app/node_modules
     restart: unless-stopped
+    profiles:
+      - dev
+      - development
+
+  # Production environment
+  noded-prod:
+    build:
+      context: .
+      target: production
+    container_name: noded-prod
+    ports:
+      - "6001:8000"    # Production port mapping
     environment:
       - NODE_ENV=production
     volumes:
-      - ./dist:/app/dist:ro
-      - ./index.html:/app/index.html:ro
-      - ./standalone.html:/app/standalone.html:ro
+      # Read-only mounts for production
       - ./config:/app/config:ro
+      - ./data:/app/data
+    restart: unless-stopped
+    profiles:
+      - prod
+      - production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Testing environment
+  noded-test:
+    build:
+      context: .
+      target: testing
+    container_name: noded-test
+    environment:
+      - NODE_ENV=test
+      - RUN_COVERAGE=true
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./config:/app/config:ro
+      - noded-test-coverage:/app/coverage
+    profiles:
+      - test
+      - testing
+
+  # Database management service (for database operations)
+  noded-db-manager:
+    build:
+      context: .
+      target: base
+    container_name: noded-db-manager
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./data:/app/data
+      - ./clear-database.js:/app/clear-database.js:ro
+    profiles:
+      - db
+    command: ["node", "clear-database.js"]
+
+# Named volumes for persistent data and caching
+volumes:
+  noded-dist:
+    name: noded-dist
+  noded-dist-server:
+    name: noded-dist-server
+  noded-node-modules:
+    name: noded-node-modules
+  noded-test-coverage:
+    name: noded-test-coverage
+
+# Networks (optional, using default bridge network)
+networks:
+  default:
+    name: noded-network
