@@ -1,7 +1,6 @@
 import { Database } from 'sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as fsPromises from 'fs/promises';
 import { Logger } from '../utils/logger';
 import { BaseError } from '../types/errors';
 
@@ -509,34 +508,6 @@ export class DatabaseService {
     }
   }
 
-  public async runMigration(): Promise<void> {
-    const correlationId = this.logger.generateCorrelationId();
-    
-    try {
-      this.logger.logFunctionEntry('runMigration', {});
-      
-      const migrationPath = path.join(__dirname, '../migrations/001_add_sharing_tables.sql');
-      const migrationSql = await fsPromises.readFile(migrationPath, 'utf-8');
-      
-      // Split migration into individual statements
-      const statements = migrationSql
-        .split(';')
-        .map(s => s.trim())
-        .filter(s => s.length > 0);
-      
-      for (const statement of statements) {
-        await this.runQuery(statement);
-        this.logger.logBusinessLogic('Migration statement executed', {
-          statementPreview: statement.substring(0, 50) + '...'
-        }, correlationId);
-      }
-      
-      this.logger.logFunctionExit('runMigration', undefined);
-    } catch (error) {
-      this.logger.logError(error as Error, 'runMigration', { correlationId });
-      throw new DatabaseError('Failed to run sharing tables migration', error as Error);
-    }
-  }
 
   // Public wrapper methods for share service
   public async run(sql: string, params: any[] = []): Promise<void> {

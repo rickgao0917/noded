@@ -7,6 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a graph-based node editor built with TypeScript that renders an interactive tree of conversation nodes. Each node contains multiple blocks (prompt, response, markdown) and represents a conversation state, with child nodes representing edits or variations creating a guaranteed tree structure with DOM-based rendering.
 
 **Major Updates (2025-06-25):**
+- **User Discovery Feature**: New togglable feature for searching users and viewing their workspaces (feature flag controlled)
+- **Feature Flag System**: Added runtime feature flag management with localStorage persistence and configuration support
+- **Collaboration Feature Removal**: Removed all partial implementations of sharing and collaboration features
+- **Read-Only Mode Cleanup**: Eliminated read-only mode functionality and related UI/API endpoints
+- **Simplified Architecture**: Streamlined codebase without sharing services, database schemas, or collaboration dialogs
 - **Docker-Only Development**: Complete transition to Docker-based development with hot-reloading
 - **Multi-Stage Docker Build**: Development, production, and testing environments in single Dockerfile
 - **Hot-Reloading Support**: Real-time TypeScript compilation and server restart in containers
@@ -152,6 +157,52 @@ This is a graph-based node editor built with TypeScript that renders an interact
 - Type guards for all data structures (GraphNode, NodeBlock, Position)
 - Comprehensive validation with detailed error reporting
 - Tree integrity validation preventing cycles and orphaned references
+
+## User Discovery Feature (Feature Flag)
+
+**Overview:**
+The User Discovery feature allows users to search for other users in the database and view their workspace information. This feature is controlled by a feature flag system and must be explicitly enabled.
+
+**Feature Flag Control:**
+- Feature name: `userDiscovery`
+- Default state: Disabled
+- Toggle via: UI button (👥) in controls panel or configuration file
+- Persistence: localStorage + configuration override
+
+**Configuration:**
+```javascript
+// In config/config.js
+window.NODE_EDITOR_CONFIG = {
+  FEATURE_FLAGS: {
+    enabled: {
+      userDiscovery: true  // Enable the feature by default
+    }
+  }
+};
+```
+
+**Frontend Components:**
+- **FeatureFlagService** (`src/services/feature-flag-service.ts`): Runtime feature flag management
+- **UserDiscoveryPanel** (`src/components/user-discovery-panel.ts`): Main UI component with search and results
+- **UserDiscoveryApi** (`src/services/user-discovery-api.ts`): API client for discovery endpoints
+
+**Backend Services:**
+- **UserDiscoveryService** (`server-src/services/user-discovery-service.ts`): Core discovery logic
+- **API Endpoints**: `/api/discovery/users/search`, `/api/discovery/users/:userId/workspaces`, `/api/discovery/statistics`
+
+**Security & Privacy:**
+- Only public workspace metadata is exposed (no actual content)
+- User search excludes the requesting user from results
+- Workspace node counts are estimated from data size
+- All endpoints require authentication
+- No sensitive workspace content is revealed
+
+**Usage:**
+1. Enable feature flag via toggle button (👥) or configuration
+2. Click user discovery button to open search panel
+3. Search for users by username (minimum 2 characters)
+4. Click on user results to view their workspace list
+5. View public workspace metadata (name, update time, estimated node count)
 
 ### Key Components
 

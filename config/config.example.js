@@ -5,6 +5,13 @@ window.NODE_EDITOR_CONFIG = {
   // Get your API key from https://aistudio.google.com/apikey
   GEMINI_API_KEY: 'YOUR_API_KEY_HERE',
   
+  // Feature flags for experimental features
+  FEATURE_FLAGS: {
+    enabled: {
+      userDiscovery: true  // Enable user discovery feature (search for other users and their workspaces)
+    }
+  },
+  
   // Debug configuration - control what gets logged to console
   DEBUG: {
     // Global enable/disable

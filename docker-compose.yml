@@ -25,6 +25,7 @@ services:
       - ./index.html:/app/index.html
       - ./standalone.html:/app/standalone.html
       - ./data:/app/data
+      - ./scripts:/app/scripts
       # Mount build outputs (created by container)
       - noded-dist:/app/dist
       - noded-dist-server:/app/dist-server
@@ -73,6 +74,7 @@ services:
       - ./src:/app/src:ro
       - ./tests:/app/tests:ro
       - ./config:/app/config:ro
+      - ./scripts:/app/scripts:ro
       - noded-test-coverage:/app/coverage
     profiles:
       - test

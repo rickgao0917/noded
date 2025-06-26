@@ -681,6 +681,23 @@
             background: #3d3d3d;
         }
 
+        .control-btn.feature-toggle {
+            background: #1a472a;
+            border-color: #2d5f3a;
+            font-size: 14px;
+            min-width: 40px;
+        }
+
+        .control-btn.feature-toggle:hover {
+            background: #2d5f3a;
+            border-color: #4a7c59;
+        }
+
+        .control-btn.feature-toggle.active {
+            background: #4CAF50;
+            border-color: #45a049;
+        }
+
 
         .zoom-controls {
             position: absolute;
@@ -1282,146 +1299,6 @@
             }
         }
         
-        /* Read-Only Mode Styles */
-        .editor-container.read-only .node {
-            cursor: default;
-            opacity: 0.95;
-        }
-        
-        .editor-container.read-only .node:hover {
-            border-color: #404040; /* No hover effect in read-only mode */
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Keep default shadow */
-        }
-        
-        /* Hide all control buttons in read-only mode */
-        .editor-container.read-only .btn,
-        .editor-container.read-only .btn-add,
-        .editor-container.read-only .btn-delete,
-        .editor-container.read-only .btn-delete-block,
-        .editor-container.read-only .btn-submit,
-        .editor-container.read-only .btn-collapse,
-        .editor-container.read-only .btn-minimize,
-        .editor-container.read-only .btn-toggle-mode,
-        .editor-container.read-only .control-btn:not(#toggleReadOnlyBtn),
-        .editor-container.read-only .node-resize-handle,
-        .editor-container.read-only .resize-handle {
-            display: none !important;
-        }
-        
-        /* Make node names non-editable in read-only mode */
-        .editor-container.read-only .node-name {
-            cursor: default;
-            pointer-events: none;
-            border-color: transparent !important;
-            background: transparent !important;
-        }
-        
-        /* Disable textarea editing in read-only mode */
-        .editor-container.read-only textarea {
-            cursor: default;
-            pointer-events: none;
-            resize: none;
-            user-select: text; /* Allow text selection but not editing */
-            background: rgba(255, 255, 255, 0.02);
-            color: #ccc;
-        }
-        
-        /* Disable canvas panning in read-only mode */
-        .editor-container.read-only .canvas {
-            cursor: default;
-        }
-        
-        .editor-container.read-only .canvas:active {
-            cursor: default;
-        }
-        
-        /* Show preview mode for all blocks in read-only mode */
-        .editor-container.read-only .block[data-preview-mode="raw"] .rendered-content {
-            display: block;
-        }
-        
-        .editor-container.read-only .block[data-preview-mode="raw"] textarea {
-            display: none;
-        }
-        
-        /* Disable rendered content hover effects in read-only mode */
-        .editor-container.read-only .rendered-content {
-            cursor: default;
-            pointer-events: none;
-        }
-        
-        .editor-container.read-only .rendered-content:hover {
-            background: rgba(255, 255, 255, 0.02);
-            border-color: rgba(255, 255, 255, 0.05);
-        }
-        
-        /* Hide chat input controls in read-only mode */
-        .editor-container.read-only .chat-input-container,
-        .editor-container.read-only .chat-input-wrapper,
-        .editor-container.read-only .chat-actions,
-        .editor-container.read-only .chat-edit-buttons {
-            display: none !important;
-        }
-        
-        /* Disable chat message editing in read-only mode */
-        .editor-container.read-only .chat-message-content {
-            cursor: default;
-            pointer-events: none;
-        }
-        
-        /* Read-only indicator in controls area */
-        .read-only-indicator {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(255, 100, 100, 0.1);
-            border: 1px solid rgba(255, 100, 100, 0.3);
-            color: #ff9999;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 500;
-            display: none;
-            align-items: center;
-            gap: 8px;
-            z-index: 1000;
-        }
-        
-        .editor-container.read-only .read-only-indicator {
-            display: flex;
-        }
-        
-        .read-only-icon {
-            font-size: 16px;
-        }
-        
-        /* Ensure block headers remain visible but non-interactive */
-        .editor-container.read-only .block-header {
-            cursor: default;
-            user-select: none;
-        }
-        
-        /* Keep zoom controls functional in read-only mode */
-        .editor-container.read-only .zoom-controls {
-            pointer-events: auto;
-        }
-        
-        /* Keep the toggle read-only button visible and functional */
-        #toggleReadOnlyBtn {
-            background: #5a3d2d;
-        }
-        
-        #toggleReadOnlyBtn:hover {
-            background: #6a4d3d;
-        }
-        
-        .editor-container.read-only #toggleReadOnlyBtn {
-            background: #3d5a2d;
-        }
-        
-        .editor-container.read-only #toggleReadOnlyBtn:hover {
-            background: #4d6a3d;
-        }
         
         /* Share UI Animations and Transitions */
         @keyframes fadeIn {
@@ -1629,14 +1506,7 @@
             transition: filter 0.3s ease;
         }
         
-        .editor-container.read-only {
-            filter: saturate(0.8);
-        }
         
-        /* Smooth Node Transitions in Read-Only */
-        .node.read-only {
-            transition: opacity 0.3s ease, filter 0.3s ease;
-        }
         
         /* Share Sidebar Animations */
         .shared-workspaces-section {
@@ -1709,10 +1579,6 @@
 </head>
 <body>
     <div class="editor-container">
-        <div class="read-only-indicator">
-            <span class="read-only-icon">🔒</span>
-            <span>Read-Only Mode</span>
-        </div>
         
         <div class="controls">
             <button class="control-btn" id="addRootBtn">Add Root</button>
@@ -1720,7 +1586,7 @@
             <button class="control-btn" id="toggleCollapseBtn">Collapse All</button>
             <button class="control-btn" id="resetViewBtn">Reset View</button>
             <button class="control-btn" id="exportBtn">Export</button>
-            <button class="control-btn" id="toggleReadOnlyBtn">Toggle Read-Only</button>
+            <button class="control-btn feature-toggle" id="userDiscoveryBtn" title="User Discovery" style="display: none;">👥</button>
         </div>
         
         <div class="zoom-controls">

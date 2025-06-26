@@ -5,9 +5,7 @@ const path = require('path');
 const { DatabaseService } = require('./dist-server/services/database-service');
 const { AuthenticationService } = require('./dist-server/services/authentication-service');
 const { WorkspaceService } = require('./dist-server/services/workspace-service');
-const { ShareService } = require('./dist-server/services/share-service');
-const { createShareRoutes } = require('./dist-server/routes/share-routes');
-const { requireShareAccess } = require('./dist-server/middleware/share-auth');
+const { UserDiscoveryService } = require('./dist-server/services/user-discovery-service');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -25,26 +23,17 @@ app.use('/config', express.static(path.join(__dirname, 'config')));
 // Initialize services
 let authService;
 let workspaceService;
+let userDiscoveryService;
 let dbService;
-let shareService;
 
 async function initializeServices() {
   try {
     dbService = DatabaseService.getInstance();
     await dbService.initialize();
     
-    // Run migration for sharing tables
-    try {
-      await dbService.runMigration();
-      console.log('Database migration completed successfully');
-    } catch (error) {
-      console.error('Failed to run migration:', error);
-      // Don't exit - migration might have already been applied
-    }
-    
     authService = AuthenticationService.getInstance();
     workspaceService = WorkspaceService.getInstance();
-    shareService = new ShareService(dbService);
+    userDiscoveryService = UserDiscoveryService.getInstance();
     
     console.log('Services initialized successfully');
   } catch (error) {
@@ -143,29 +132,21 @@ app.post('/api/workspaces', requireAuth, async (req, res) => {
   }
 });
 
-// Get workspace (supports shared workspaces)
-app.get('/api/workspaces/:workspaceId', 
-  requireShareAccess(shareService),
-  async (req, res) => {
-    try {
-      const workspace = await workspaceService.getWorkspaceById(req.params.workspaceId);
-      
-      if (!workspace) {
-        return res.status(404).json({ error: 'Workspace not found' });
-      }
-      
-      // Add read-only flag for shared workspaces
-      if (req.shareAccess === 'view') {
-        workspace.isReadOnly = true;
-      }
-      
-      res.json(workspace);
-    } catch (error) {
-      console.error('Get workspace error:', error);
-      res.status(500).json({ error: 'Failed to get workspace' });
+// Get workspace
+app.get('/api/workspaces/:workspaceId', requireAuth, async (req, res) => {
+  try {
+    const workspace = await workspaceService.getWorkspace(req.user.userId, req.params.workspaceId);
+    
+    if (!workspace) {
+      return res.status(404).json({ error: 'Workspace not found' });
     }
+    
+    res.json(workspace);
+  } catch (error) {
+    console.error('Get workspace error:', error);
+    res.status(500).json({ error: 'Failed to get workspace' });
   }
-);
+});
 
 // Update workspace
 app.put('/api/workspaces/:workspaceId', requireAuth, async (req, res) => {
@@ -204,9 +185,59 @@ app.get('/api/workspaces/default/get-or-create', requireAuth, async (req, res) =
   }
 });
 
-// === Share Routes ===
-const shareRoutes = createShareRoutes(shareService, workspaceService, requireAuth);
-app.use('/api/shares', shareRoutes);
+// === User Discovery Endpoints ===
+
+// Search for users
+app.get('/api/discovery/users/search', requireAuth, async (req, res) => {
+  try {
+    const { q: query, limit = 10, offset = 0 } = req.query;
+    
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    const result = await userDiscoveryService.searchUsers(
+      query,
+      req.user.userId,
+      parseInt(limit.toString()),
+      parseInt(offset.toString())
+    );
+    
+    res.json(result);
+  } catch (error) {
+    console.error('User search error:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get user's public workspaces
+app.get('/api/discovery/users/:userId/workspaces', requireAuth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const workspaces = await userDiscoveryService.getUserWorkspaces(
+      userId,
+      req.user.userId
+    );
+    
+    res.json(workspaces);
+  } catch (error) {
+    console.error('Get user workspaces error:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get user statistics
+app.get('/api/discovery/statistics', requireAuth, async (req, res) => {
+  try {
+    const stats = await userDiscoveryService.getUserStatistics();
+    res.json(stats);
+  } catch (error) {
+    console.error('Get user statistics error:', error);
+    res.status(500).json({ error: 'Failed to get user statistics' });
+  }
+});
+
 
 // Serve index.html for all other routes
 app.get('*', (req, res) => {

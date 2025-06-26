@@ -220,48 +220,4 @@ export class SessionManager {
     }
   }
 
-  public async loadSharedWorkspace(workspaceId: string): Promise<void> {
-    this.logger.logFunctionEntry('loadSharedWorkspace', { workspaceId });
-    
-    try {
-      // Stop auto-save for current workspace
-      this.disableAutoSave();
-      
-      // Fetch shared workspace
-      const response = await this.makeAuthenticatedRequest(`/api/shares/${workspaceId}/workspace`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to load shared workspace');
-      }
-      
-      const workspace = await response.json();
-      
-      // Check if it's a shared workspace
-      if (!workspace.isReadOnly) {
-        throw new Error('This is not a shared workspace');
-      }
-      
-      // Dispatch event for GraphEditor to load
-      const event = new CustomEvent('loadSharedWorkspace', {
-        detail: {
-          workspace,
-          isReadOnly: true,
-          shareInfo: workspace.shareInfo
-        }
-      });
-      window.dispatchEvent(event);
-      
-      this.logger.info('Shared workspace loaded', {
-        workspaceId,
-        workspaceName: workspace.name,
-        shareType: workspace.shareInfo?.type
-      });
-      
-    } catch (error) {
-      this.logger.logError(error as Error, 'loadSharedWorkspace');
-      throw error;
-    }
-    
-    this.logger.logFunctionExit('loadSharedWorkspace');
-  }
 }

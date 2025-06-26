@@ -1,6 +1,14 @@
 # Multi-stage Dockerfile for Node.js TypeScript application with hot-reloading
 FROM node:18-alpine AS base
 
+# Install system dependencies including Python3
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    curl \
+    bash \
+    git
+
 # Set working directory
 WORKDIR /app
 
@@ -28,18 +36,42 @@ ENV NODE_ENV=development
 ENV CHOKIDAR_USEPOLLING=true
 ENV WATCHPACK_POLLING=true
 
-# Create development start script
-RUN echo '#!/bin/sh' > /app/dev-start.sh && \
-    echo 'echo "Starting development environment..."' >> /app/dev-start.sh && \
-    echo 'echo "Building initial TypeScript..."' >> /app/dev-start.sh && \
-    echo 'npm run build:all' >> /app/dev-start.sh && \
-    echo 'echo "Starting file watchers and servers..."' >> /app/dev-start.sh && \
-    echo 'concurrently --kill-others --prefix-colors "cyan,magenta,yellow" \' >> /app/dev-start.sh && \
-    echo '  --names "CLIENT,SERVER,WATCH" \' >> /app/dev-start.sh && \
-    echo '  "python3 -m http.server 8000" \' >> /app/dev-start.sh && \
-    echo '  "nodemon --watch server-src --ext ts --exec \"npm run build:server && node server.js\"" \' >> /app/dev-start.sh && \
-    echo '  "nodemon --watch src --ext ts --exec \"npm run build\""' >> /app/dev-start.sh && \
-    chmod +x /app/dev-start.sh
+# Create development start script with better error handling
+RUN cat > /app/dev-start.sh << 'EOF'
+#!/bin/bash
+set -e
+
+echo "🚀 Starting Noded development environment..."
+echo "📁 Working directory: $(pwd)"
+echo "📦 Node version: $(node --version)"
+echo "🐍 Python version: $(python3 --version)"
+
+# Check if required files exist
+if [ ! -f "package.json" ]; then
+    echo "❌ package.json not found"
+    exit 1
+fi
+
+if [ ! -f "scripts/fix-imports.js" ]; then
+    echo "❌ scripts/fix-imports.js not found"
+    exit 1
+fi
+
+echo "🔧 Building initial TypeScript..."
+npm run build:all || {
+    echo "❌ Initial build failed"
+    exit 1
+}
+
+echo "🎯 Starting file watchers and servers..."
+exec concurrently --kill-others --prefix-colors "cyan,magenta,yellow" \
+  --names "SERVER,WATCH" \
+  "nodemon --watch server-src --ext ts --exec 'npm run build:server && node server.js'" \
+  "nodemon --watch src --ext ts --exec 'npm run build'"
+EOF
+
+# Make script executable
+RUN chmod +x /app/dev-start.sh
 
 # Development command with hot-reloading
 CMD ["/app/dev-start.sh"]
@@ -52,6 +84,12 @@ RUN npm run build:all
 
 # Production runtime stage
 FROM node:18-alpine AS production
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    python3 \
+    curl \
+    dumb-init
 
 # Set working directory
 WORKDIR /app
@@ -72,11 +110,11 @@ COPY --from=builder /app/data ./data
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
+    adduser -S nodeuser -u 1001 -G nodejs
 
 # Change ownership of app directory
-RUN chown -R nextjs:nodejs /app
-USER nextjs
+RUN chown -R nodeuser:nodejs /app
+USER nodeuser
 
 # Expose port 8000
 EXPOSE 8000
@@ -85,8 +123,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8000/ || exit 1
 
-# Production command
-CMD ["node", "server.js"]
+# Production command using dumb-init for proper signal handling
+CMD ["dumb-init", "node", "server.js"]
 
 # Testing stage
 FROM base AS testing
